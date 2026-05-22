@@ -1,4 +1,5 @@
-const pool = mysql.createPool({
+const mysql = require("mysql2/promise");
+onst pool = mysql.createPool({
   host,
   user,
   password,
