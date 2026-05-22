@@ -21,6 +21,12 @@ const buildLoginHandler = ({ requiredRole = null, roleMessage = "Access denied" 
         return res.status(500).json({ message: "Server config error" });
       }
 
+      const [enterprises] = await db.query("SELECT * FROM enterprises WHERE enterprise = ? AND isActive = ?", ["hotel_friday_inn", true]);
+
+      const enterprise = enterprises[0];
+
+      if (!enterprise) return res.status(401).json({ message: "Invalid credentials" });
+
       const [users] = await db.query("SELECT * FROM users WHERE email = ?", [email]);
       const user = users[0];
 

@@ -23,6 +23,12 @@ const requireAuth = async (req, res, next) => {
 
     let name = null;
 
+    const [enterprises] = await db.query("SELECT * FROM enterprises WHERE enterprise = ? AND isActive = ?", ["hotel_friday_inn", true]);
+
+    const enterprise = enterprises[0];
+
+    if (!enterprise) return res.status(401).json({ message: "Invalid credentials" });
+
     // 🔥 FETCH NAME BASED ON ROLE
     if (decoded.role === "admin" || decoded.role === "kitchen") {
       const [rows] = await db.query(
