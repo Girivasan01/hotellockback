@@ -66,10 +66,10 @@ const calculateBillingTotals = ({
     roomRatePerNight !== undefined && roomRatePerNight !== null
       ? Number(roomRatePerNight || 0)
       : roomRate !== undefined && roomRate !== null
-      ? Number(roomRate || 0)
-      : resolvedStayDays > 0
-      ? Number(roomTotal || 0) / resolvedStayDays
-      : Number(roomTotal || 0);
+        ? Number(roomRate || 0)
+        : resolvedStayDays > 0
+          ? Number(roomTotal || 0) / resolvedStayDays
+          : Number(roomTotal || 0);
 
   const resolvedRoomTotal =
     roomTotal !== undefined && roomTotal !== null
@@ -81,21 +81,23 @@ const calculateBillingTotals = ({
   const resolvedDiscount = roundMoney(discount);
   const resolvedAdvancePaid = roundMoney(advancePaid);
 
-  const roomGst = computeGstAmount("room", resolvedRoomTotal, {
+  const discountedRoomTotal = roundMoney(resolvedRoomTotal - resolvedDiscount);
+
+  const roomGst = computeGstAmount("room", discountedRoomTotal, {
     roomRatePerNight: resolvedRoomRatePerNight,
   });
   const kitchenGst = computeGstAmount("kitchen", resolvedKitchenTotal);
   const addonGst = computeGstAmount("addon", resolvedAddonTotal);
 
   const subtotal = roundMoney(
-    resolvedRoomTotal + resolvedKitchenTotal + resolvedAddonTotal
+    resolvedRoomTotal + resolvedKitchenTotal + resolvedAddonTotal,
   );
   const gstAmount = roundMoney(
-    roomGst.amount + kitchenGst.amount + addonGst.amount
+    roomGst.amount + kitchenGst.amount + addonGst.amount,
   );
   const totalAmount = roundMoney(subtotal + gstAmount);
   const finalPayable = roundMoney(
-    totalAmount - resolvedDiscount - resolvedAdvancePaid
+    totalAmount - resolvedDiscount - resolvedAdvancePaid,
   );
 
   return {

@@ -6,10 +6,15 @@ const { requireAuth, requireAdmin } = require("../middleware/auth");
 
 const router = express.Router();
 
-const buildLoginHandler = ({ requiredRole = null, roleMessage = "Access denied" } = {}) => {
+const buildLoginHandler = ({
+  requiredRole = null,
+  roleMessage = "Access denied",
+} = {}) => {
   return async (req, res) => {
     try {
-      const email = String(req.body.email || "").trim().toLowerCase();
+      const email = String(req.body.email || "")
+        .trim()
+        .toLowerCase();
       const { password } = req.body;
 
       if (!email || !password) {
@@ -21,13 +26,9 @@ const buildLoginHandler = ({ requiredRole = null, roleMessage = "Access denied" 
         return res.status(500).json({ message: "Server config error" });
       }
 
-      const [enterprises] = await db.query("SELECT * FROM enterprises WHERE enterprise = ? AND isActive = ?", ["hotel_friday_inn", true]);
-
-      const enterprise = enterprises[0];
-
-      if (!enterprise) return res.status(401).json({ message: "Invalid credentials" });
-
-      const [users] = await db.query("SELECT * FROM users WHERE email = ?", [email]);
+      const [users] = await db.query("SELECT * FROM users WHERE email = ?", [
+        email,
+      ]);
       const user = users[0];
 
       if (!user) {
@@ -47,15 +48,21 @@ const buildLoginHandler = ({ requiredRole = null, roleMessage = "Access denied" 
         return res.status(403).json({ message: roleMessage });
       }
 
-      const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, {
-        expiresIn: "24h",
-      });
+      const token = jwt.sign(
+        { id: user.id, role: user.role },
+        process.env.JWT_SECRET,
+        {
+          expiresIn: "24h",
+        },
+      );
 
       const { password: _password, ...safeUser } = user;
       res.json({ token, user: safeUser });
     } catch (err) {
       console.error("LOGIN ERROR:", err);
-      res.status(500).json({ message: "Internal server error", error: err.message });
+      res
+        .status(500)
+        .json({ message: "Internal server error", error: err.message });
     }
   };
 };
@@ -73,45 +80,68 @@ router.post(
   buildLoginHandler({
     requiredRole: "kitchen",
     roleMessage: "Kitchen login accepts kitchen accounts only",
-  })
+  }),
 );
 
 /* ======================
    KITCHEN REGISTRATION
    (ADMIN ONLY)
 ====================== */
-router.post("/register-kitchen", requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const { name, email, password } = req.body;
+router.post(
+  "/register-kitchen",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const { name, email, password } = req.body;
 
-    if (!name || !email || !password) {
-      return res.status(400).json({ message: "Name, email and password required" });
+      if (!name || !email || !password) {
+        return res
+          .status(400)
+          .json({ message: "Name, email and password required" });
+      }
+
+      if (password.length < 6) {
+        return res
+          .status(400)
+          .json({ message: "Password must be at least 6 characters" });
+      }
+
+      const [existing] = await db.query(
+        "SELECT id FROM users WHERE email = ?",
+        [email],
+      );
+      if (existing.length > 0) {
+        return res.status(409).json({ message: "Email already registered" });
+      }
+
+      const hash = await bcrypt.hash(password, 10);
+
+      // Inherit org from the admin creating this user
+      const [adminRows] = await db.query(
+        "SELECT org_id, org_name FROM users WHERE id = ? LIMIT 1",
+        [req.user.id],
+      );
+      const org_id = adminRows[0]?.org_id ?? null;
+      const org_name = adminRows[0]?.org_name ?? null;
+
+      const [result] = await db.query(
+        "INSERT INTO users (name, email, password, role, org_id, org_name) VALUES (?, ?, ?, 'kitchen', ?, ?)",
+        [name, email, hash, org_id, org_name],
+      );
+
+      res.status(201).json({
+        message: "Kitchen user registered successfully",
+        user: { id: result.insertId, name, email, role: "kitchen" },
+      });
+    } catch (err) {
+      console.error("INSERT ERROR:", err);
+      res
+        .status(500)
+        .json({ message: "Kitchen registration failed", error: err.message });
     }
-
-    if (password.length < 6) {
-      return res.status(400).json({ message: "Password must be at least 6 characters" });
-    }
-
-    const [existing] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
-    if (existing.length > 0) {
-      return res.status(409).json({ message: "Email already registered" });
-    }
-
-    const hash = await bcrypt.hash(password, 10);
-    const [result] = await db.query(
-      "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, 'kitchen')",
-      [name, email, hash]
-    );
-
-    res.status(201).json({
-      message: "Kitchen user registered successfully",
-      user: { id: result.insertId, name, email, role: "kitchen" },
-    });
-  } catch (err) {
-    console.error("INSERT ERROR:", err);
-    res.status(500).json({ message: "Kitchen registration failed", error: err.message });
-  }
-});
+  },
+);
 
 /* ======================
    LOGOUT
@@ -126,7 +156,10 @@ router.post("/logout", (req, res) => {
 router.get("/profile", requireAuth, async (req, res) => {
   try {
     if (req.user.role === "staff" && req.user.staffId) {
-      const [rows] = await db.query("SELECT id, name, phone, status FROM staff WHERE id = ?", [req.user.staffId]);
+      const [rows] = await db.query(
+        "SELECT id, name, phone, status FROM staff WHERE id = ?",
+        [req.user.staffId],
+      );
       const staff = rows[0];
 
       if (!staff) {
@@ -155,7 +188,9 @@ router.get("/profile", requireAuth, async (req, res) => {
 ====================== */
 router.get("/staff-list", async (req, res) => {
   try {
-    const [staffList] = await db.query("SELECT id, name FROM staff WHERE status = 'active' ORDER BY name");
+    const [staffList] = await db.query(
+      "SELECT id, name FROM staff WHERE status = 'active' ORDER BY name",
+    );
     res.json(staffList);
   } catch (err) {
     console.error("STAFF LIST ERROR:", err);
@@ -171,14 +206,20 @@ router.put("/change-password", requireAuth, async (req, res) => {
     const { currentPassword, newPassword } = req.body;
 
     if (!currentPassword || !newPassword) {
-      return res.status(400).json({ message: "Current and new password required" });
+      return res
+        .status(400)
+        .json({ message: "Current and new password required" });
     }
 
     if (newPassword.length < 6) {
-      return res.status(400).json({ message: "Password must be at least 6 characters" });
+      return res
+        .status(400)
+        .json({ message: "Password must be at least 6 characters" });
     }
 
-    const [users] = await db.query("SELECT password FROM users WHERE id = ?", [req.user.id]);
+    const [users] = await db.query("SELECT password FROM users WHERE id = ?", [
+      req.user.id,
+    ]);
     const user = users[0];
 
     if (!user) {
@@ -191,7 +232,10 @@ router.put("/change-password", requireAuth, async (req, res) => {
     }
 
     const hash = await bcrypt.hash(newPassword, 10);
-    const [result] = await db.query("UPDATE users SET password = ? WHERE id = ?", [hash, req.user.id]);
+    const [result] = await db.query(
+      "UPDATE users SET password = ? WHERE id = ?",
+      [hash, req.user.id],
+    );
 
     if (result.affectedRows === 0) {
       return res.status(500).json({ message: "Password update failed" });

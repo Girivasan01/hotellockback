@@ -141,7 +141,6 @@ async function seedKitchenUser() {
         "UPDATE users SET name = ?, password = ?, role = ?, staff_id = NULL WHERE email = ?",
         [name, hashed, "kitchen", email]
       );
-      console.log("Kitchen user credentials updated:", email);
       return;
     }
 

@@ -20,7 +20,7 @@ router.get("/", requireAuth, requireAdmin, async (req, res) => {
       FROM staff s
       LEFT JOIN users u ON u.staff_id = s.id AND u.role = 'staff'
       ORDER BY s.created_at DESC
-      `
+      `,
     );
     res.json(rows);
   } catch (err) {
@@ -49,29 +49,44 @@ router.post("/", requireAuth, requireAdmin, async (req, res) => {
     }
 
     if (!/^\d{10}$/.test(phone)) {
-      return res.status(400).json({ message: "Phone number must be exactly 10 digits" });
+      return res
+        .status(400)
+        .json({ message: "Phone number must be exactly 10 digits" });
     }
 
     if (password.length < 6) {
-      return res.status(400).json({ message: "Password must be at least 6 characters" });
+      return res
+        .status(400)
+        .json({ message: "Password must be at least 6 characters" });
     }
 
-    const [existingRows] = await db.query("SELECT id FROM users WHERE email = ?", [emailTrimed]);
+    const [existingRows] = await db.query(
+      "SELECT id FROM users WHERE email = ?",
+      [emailTrimed],
+    );
     if (existingRows.length > 0) {
       return res.status(400).json({ message: "Email already registered" });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
 
+    // Look up the admin's org so the new staff inherits it
+    const [adminRows] = await db.query(
+      "SELECT org_id, org_name FROM users WHERE id = ? LIMIT 1",
+      [req.user.id],
+    );
+    const org_id = adminRows[0]?.org_id ?? null;
+    const org_name = adminRows[0]?.org_name ?? null;
+
     const [staffResult] = await db.query(
       `INSERT INTO staff (name, phone, status) VALUES (?, ?, 'active')`,
-      [nameTrimed, phone]
+      [nameTrimed, phone],
     );
     const staffId = staffResult.insertId;
 
     await db.query(
-      `INSERT INTO users (name, email, password, role, staff_id) VALUES (?, ?, ?, 'staff', ?)`,
-      [nameTrimed, emailTrimed, passwordHash, staffId]
+      `INSERT INTO users (name, email, password, role, staff_id, org_id, org_name) VALUES (?, ?, ?, 'staff', ?, ?, ?)`,
+      [nameTrimed, emailTrimed, passwordHash, staffId, org_id, org_name],
     );
 
     res.status(201).json({
@@ -93,8 +108,13 @@ router.delete("/:id", requireAuth, requireAdmin, async (req, res) => {
   try {
     const staffId = req.params.id;
 
-    const [userDelete] = await db.query("DELETE FROM users WHERE staff_id = ?", [staffId]);
-    const [staffDelete] = await db.query("DELETE FROM staff WHERE id = ?", [staffId]);
+    const [userDelete] = await db.query(
+      "DELETE FROM users WHERE staff_id = ?",
+      [staffId],
+    );
+    const [staffDelete] = await db.query("DELETE FROM staff WHERE id = ?", [
+      staffId,
+    ]);
 
     if (staffDelete.affectedRows === 0) {
       return res.status(404).json({ message: "Staff not found" });

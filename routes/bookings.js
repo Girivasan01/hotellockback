@@ -47,7 +47,7 @@ router.get("/debug/room/:roomId", requireAuth, async (req, res) => {
   try {
     const [rows] = await db.query(
       "SELECT id, room_number, category, status, price_per_night, capacity FROM rooms WHERE id = ?",
-      [req.params.roomId]
+      [req.params.roomId],
     );
     const room = rows[0];
     res.json({
@@ -72,9 +72,11 @@ router.get("/calendar", requireAuth, async (req, res) => {
         b.check_in,
         b.check_out,
         b.status,
-        r.room_number
+        r.room_number,
+        c.name AS customer_name
       FROM bookings b
       JOIN rooms r ON b.room_id = r.id
+      LEFT JOIN customers c ON b.customer_id = c.id
       WHERE b.status IN ('Confirmed', 'Checked-in')
       ORDER BY b.check_in ASC
     `;
@@ -124,16 +126,16 @@ router.post("/", requireAuth, async (req, res) => {
       discount,
     } = req.body;
 
-    const price        = Number(req.body.price)        || 0;
+    const price = Number(req.body.price) || 0;
     const advance_paid = Number(req.body.advance_paid) || 0;
     const people_count = Number(req.body.people_count) || 1;
 
     // ── Validation ──────────────────────────────────────────
     const missing = [];
-    if (!booking_id)  missing.push("booking_id");
+    if (!booking_id) missing.push("booking_id");
     if (!customer_id) missing.push("customer_id");
-    if (!room_id)     missing.push("room_id");
-    if (!price)       missing.push("price");
+    if (!room_id) missing.push("room_id");
+    if (!price) missing.push("price");
 
     if (missing.length > 0) {
       return res.status(400).json({
@@ -143,28 +145,33 @@ router.post("/", requireAuth, async (req, res) => {
     }
 
     // ── Convert incoming datetime strings safely ─────────────
-    const checkInStr  = toMySQLDateTime(check_in);
+    const checkInStr = toMySQLDateTime(check_in);
     const checkOutStr = toMySQLDateTime(check_out);
 
     // ── check_out must be after check_in ────────────────────
     if (checkInStr && checkOutStr && !dtLessThan(checkInStr, checkOutStr)) {
-      return res.status(400).json({ error: "Check-out must be after check-in" });
+      return res
+        .status(400)
+        .json({ error: "Check-out must be after check-in" });
     }
 
     // ── Resolve creator name ─────────────────────────────────
-    const created_by_id   = req.user.id;
+    const created_by_id = req.user.id;
     const created_by_role = req.user.role;
-    let   created_by_name = null;
+    let created_by_name = null;
 
     if (created_by_role === "admin") {
-      const [adminRows] = await db.query("SELECT name FROM users WHERE id = ?", [created_by_id]);
+      const [adminRows] = await db.query(
+        "SELECT name FROM users WHERE id = ?",
+        [created_by_id],
+      );
       created_by_name = adminRows[0]?.name || "Admin";
     }
 
     if (created_by_role === "staff") {
       const [staffRows] = await db.query(
         "SELECT s.name FROM users u JOIN staff s ON u.staff_id = s.id WHERE u.id = ?",
-        [created_by_id]
+        [created_by_id],
       );
       created_by_name = staffRows[0]?.name || "Staff";
     }
@@ -172,7 +179,7 @@ router.post("/", requireAuth, async (req, res) => {
     // ── Validate room exists ─────────────────────────────────
     const [roomRows] = await db.query(
       "SELECT id, capacity FROM rooms WHERE id = ?",
-      [room_id]
+      [room_id],
     );
     if (!roomRows[0]) {
       return res.status(400).json({ error: "Invalid room selected" });
@@ -186,7 +193,7 @@ router.post("/", requireAuth, async (req, res) => {
          AND status IN ('Confirmed', 'Checked-in')
          AND check_in  < ?
          AND (check_out IS NULL OR check_out > ?)`,
-      [room_id, checkOutStr || checkInStr, checkInStr]
+      [room_id, checkOutStr || checkInStr, checkInStr],
     );
 
     const conflictCount = availabilityRows[0]?.conflictCount || 0;
@@ -221,7 +228,7 @@ router.post("/", requireAuth, async (req, res) => {
         created_by_id,
         created_by_name,
         created_by_role,
-      ]
+      ],
     );
 
     // ── Insert into booking_addons table ─────────────────────
@@ -229,13 +236,20 @@ router.post("/", requireAuth, async (req, res) => {
       for (const addon of add_ons) {
         await db.query(
           "INSERT INTO booking_addons (booking_id, name, price) VALUES (?, ?, ?)",
-          [booking_id, addon.description || addon.label || addon.name, Number(addon.amount || addon.price || 0)]
+          [
+            booking_id,
+            addon.description || addon.label || addon.name,
+            Number(addon.amount || addon.price || 0),
+          ],
         );
       }
     }
 
     const roomStatus = bookingStatus === "Checked-in" ? "Occupied" : "Booked";
-    await db.query("UPDATE rooms SET status = ? WHERE id = ?", [roomStatus, room_id]);
+    await db.query("UPDATE rooms SET status = ? WHERE id = ?", [
+      roomStatus,
+      room_id,
+    ]);
 
     res.status(201).json({
       id: insertResult.insertId,
@@ -256,7 +270,11 @@ router.post("/:id/checkout", requireAuth, async (req, res) => {
     const bookingId = req.params.id;
     const checkoutService = require("../services/checkoutService");
 
-    const result = await checkoutService.processCheckout(bookingId, req.body, req.user);
+    const result = await checkoutService.processCheckout(
+      bookingId,
+      req.body,
+      req.user,
+    );
 
     if (!result.success) {
       return res.status(result.error.includes("Duplicate") ? 409 : 400).json({
@@ -324,7 +342,10 @@ router.put("/:id", requireAuth, async (req, res) => {
     } = req.body;
 
     // 1. Fetch current booking to see what changed
-    const [currentRows] = await db.query("SELECT * FROM bookings WHERE id = ?", [bookingId]);
+    const [currentRows] = await db.query(
+      "SELECT * FROM bookings WHERE id = ?",
+      [bookingId],
+    );
     const current = currentRows[0];
     if (!current) return res.status(404).json({ error: "Booking not found" });
 
@@ -343,14 +364,24 @@ router.put("/:id", requireAuth, async (req, res) => {
 
     addField("status", status);
     addField("discount", discount !== undefined ? Number(discount) : undefined);
-    addField("customer_id", customer_id !== undefined ? Number(customer_id) : undefined);
+    addField(
+      "customer_id",
+      customer_id !== undefined ? Number(customer_id) : undefined,
+    );
     addField("room_id", room_id !== undefined ? Number(room_id) : undefined);
     addField("price", price !== undefined ? Number(price) : undefined);
-    addField("advance_paid", advance_paid !== undefined ? Number(advance_paid) : undefined);
-    addField("people_count", people_count !== undefined ? Number(people_count) : undefined);
+    addField(
+      "advance_paid",
+      advance_paid !== undefined ? Number(advance_paid) : undefined,
+    );
+    addField(
+      "people_count",
+      people_count !== undefined ? Number(people_count) : undefined,
+    );
 
-    if (check_in !== undefined)  addField("check_in",  toMySQLDateTime(check_in));
-    if (check_out !== undefined) addField("check_out", toMySQLDateTime(check_out));
+    if (check_in !== undefined) addField("check_in", toMySQLDateTime(check_in));
+    if (check_out !== undefined)
+      addField("check_out", toMySQLDateTime(check_out));
 
     if (add_ons !== undefined) {
       updateFields.push("add_ons = ?");
@@ -362,12 +393,21 @@ router.put("/:id", requireAuth, async (req, res) => {
     }
 
     // 3. Conflict Check if room or dates changed
-    const effectiveRoomId  = room_id !== undefined ? Number(room_id) : current.room_id;
-    const effectiveCheckIn = check_in !== undefined ? toMySQLDateTime(check_in) : current.check_in;
-    const effectiveCheckOut = check_out !== undefined ? toMySQLDateTime(check_out) : current.check_out;
+    const effectiveRoomId =
+      room_id !== undefined ? Number(room_id) : current.room_id;
+    const effectiveCheckIn =
+      check_in !== undefined ? toMySQLDateTime(check_in) : current.check_in;
+    const effectiveCheckOut =
+      check_out !== undefined ? toMySQLDateTime(check_out) : current.check_out;
 
-    if (room_id !== undefined || check_in !== undefined || check_out !== undefined) {
-      console.log(`🔍 Checking availability for Room ${effectiveRoomId} between ${effectiveCheckIn} and ${effectiveCheckOut}`);
+    if (
+      room_id !== undefined ||
+      check_in !== undefined ||
+      check_out !== undefined
+    ) {
+      console.log(
+        `🔍 Checking availability for Room ${effectiveRoomId} between ${effectiveCheckIn} and ${effectiveCheckOut}`,
+      );
       const [conflictRows] = await db.query(
         `SELECT COUNT(*) AS conflictCount
          FROM bookings
@@ -376,28 +416,46 @@ router.put("/:id", requireAuth, async (req, res) => {
            AND status IN ('Confirmed', 'Checked-in')
            AND check_in  < ?
            AND (check_out IS NULL OR check_out > ?)`,
-        [effectiveRoomId, bookingId, effectiveCheckOut || effectiveCheckIn, effectiveCheckIn]
+        [
+          effectiveRoomId,
+          bookingId,
+          effectiveCheckOut || effectiveCheckIn,
+          effectiveCheckIn,
+        ],
       );
       if (conflictRows[0]?.conflictCount > 0) {
         console.log("⚠️ Conflict detected!");
-        return res.status(409).json({ error: "Room is not available for the selected dates" });
+        return res
+          .status(409)
+          .json({ error: "Room is not available for the selected dates" });
       }
     }
 
     // 4. Update Bookings Table
     params.push(bookingId);
-    console.log("📝 Executing Update with Fields:", updateFields.join(", "), "Params:", params);
-    await db.query(`UPDATE bookings SET ${updateFields.join(", ")} WHERE id = ?`, params);
+    (updateFields.join(", "),
+      "Params:",
+      params,
+      await db.query(
+        `UPDATE bookings SET ${updateFields.join(", ")} WHERE id = ?`,
+        params,
+      ));
 
     // 5. Sync booking_addons if changed
     if (add_ons) {
       const bIdStr = current.booking_id;
-      await db.query("DELETE FROM booking_addons WHERE booking_id = ?", [bIdStr]);
+      await db.query("DELETE FROM booking_addons WHERE booking_id = ?", [
+        bIdStr,
+      ]);
       if (Array.isArray(add_ons)) {
         for (const addon of add_ons) {
           await db.query(
             "INSERT INTO booking_addons (booking_id, name, price) VALUES (?, ?, ?)",
-            [bIdStr, addon.description || addon.label || addon.name, Number(addon.amount || addon.price || 0)]
+            [
+              bIdStr,
+              addon.description || addon.label || addon.name,
+              Number(addon.amount || addon.price || 0),
+            ],
           );
         }
       }
@@ -406,17 +464,25 @@ router.put("/:id", requireAuth, async (req, res) => {
     // 6. Update room status if status or room_id changed
     const finalStatus = status || current.status;
     const roomStatus =
-      finalStatus === "Checked-in"  ? "Occupied"  :
-      finalStatus === "Checked-out" ? "Available" :
-      finalStatus === "Cancelled"   ? "Available" :
-      "Booked";
+      finalStatus === "Checked-in"
+        ? "Occupied"
+        : finalStatus === "Checked-out"
+          ? "Available"
+          : finalStatus === "Cancelled"
+            ? "Available"
+            : "Booked";
 
     // If room changed, make old room available
     if (room_id && Number(room_id) !== current.room_id) {
-      await db.query("UPDATE rooms SET status = 'Available' WHERE id = ?", [current.room_id]);
+      await db.query("UPDATE rooms SET status = 'Available' WHERE id = ?", [
+        current.room_id,
+      ]);
     }
     // Update current/new room status
-    await db.query("UPDATE rooms SET status = ? WHERE id = ?", [roomStatus, effectiveRoomId]);
+    await db.query("UPDATE rooms SET status = ? WHERE id = ?", [
+      roomStatus,
+      effectiveRoomId,
+    ]);
 
     res.json({ message: "Booking updated effectively" });
   } catch (err) {
@@ -428,7 +494,9 @@ router.put("/:id", requireAuth, async (req, res) => {
 // DELETE - BOOKING
 router.delete("/:id", requireAuth, async (req, res) => {
   try {
-    const [result] = await db.query("DELETE FROM bookings WHERE id = ?", [req.params.id]);
+    const [result] = await db.query("DELETE FROM bookings WHERE id = ?", [
+      req.params.id,
+    ]);
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: "Booking not found" });
     }
