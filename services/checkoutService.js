@@ -57,7 +57,7 @@ class CheckoutService {
       const dbAddons = await dbService.getBookingAddons(booking.booking_id);
       const dbAddonTotal = dbAddons.reduce(
         (sum, addon) => sum + Number(addon.price || 0),
-        0
+        0,
       );
 
       const existingAddonCounts = dbAddons.reduce((counts, addon) => {
@@ -78,7 +78,7 @@ class CheckoutService {
 
       const newAddonTotal = newAddOns.reduce(
         (sum, addon) => sum + Number(addon.price || 0),
-        0
+        0,
       );
 
       const finalCheckoutTime = getLocalDateTime();
@@ -101,7 +101,7 @@ class CheckoutService {
 
       if (Math.abs(calculation.totalAmount - providedTotal) > 1) {
         console.warn(
-          `Total mismatch (IGNORED): expected ${calculation.totalAmount}, got ${providedTotal}`
+          `Total mismatch (IGNORED): expected ${calculation.totalAmount}, got ${providedTotal}`,
         );
       }
 
@@ -113,13 +113,13 @@ class CheckoutService {
               booking.booking_id,
               addon.name || "Custom Add-on",
               Number(addon.price || 0),
-            ]
+            ],
           );
         }
 
         await tx.run(
-          `UPDATE bookings SET status = 'Checked-out', check_out = ? WHERE id = ?`,
-          [finalCheckoutTime, bookingId]
+          `UPDATE bookings SET status = 'Checked-out', check_out = COALESCE(check_out, ?) WHERE id = ?`,
+          [finalCheckoutTime, bookingId],
         );
 
         await tx.run(`UPDATE rooms SET status = 'Available' WHERE id = ?`, [
@@ -146,10 +146,15 @@ class CheckoutService {
             user.id,
             user.name,
             user.role,
-          ]
+          ],
         );
 
-        await this._createLineItems(tx, billingResult.lastID, booking, calculation);
+        await this._createLineItems(
+          tx,
+          billingResult.lastID,
+          booking,
+          calculation,
+        );
 
         return billingResult.lastID;
       });
@@ -199,7 +204,9 @@ class CheckoutService {
       total: calculation.roomTotal,
     });
 
-    const kitchenOrders = await tx.getKitchenOrdersForInvoice(booking.booking_id);
+    const kitchenOrders = await tx.getKitchenOrdersForInvoice(
+      booking.booking_id,
+    );
 
     for (const kitchenOrder of kitchenOrders) {
       const quantity = Number(kitchenOrder.quantity || 1);
@@ -263,7 +270,7 @@ class CheckoutService {
           line.subtotal,
           line.gst_rate,
           line.total,
-        ]
+        ],
       );
     }
   }

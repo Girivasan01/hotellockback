@@ -3,9 +3,9 @@ const router = express.Router();
 const db = require("../db/database");
 const { requireAuth } = require("../middleware/auth");
 
-// ─────────────────────────────────────────────────────────────
+// ───────
 // DATETIME HELPERS  (pure string — zero Date() construction)
-// ─────────────────────────────────────────────────────────────
+// ───────
 
 /**
  * Safely convert any incoming datetime string to MySQL DATETIME format.
@@ -38,9 +38,9 @@ const dtLessThan = (a, b) => {
   return a < b;
 };
 
-// ─────────────────────────────────────────────────────────────
+// ───────
 // ROUTES
-// ─────────────────────────────────────────────────────────────
+// ───────
 
 // DEBUG - CHECK ROOM BY ID
 router.get("/debug/room/:roomId", requireAuth, async (req, res) => {
@@ -130,7 +130,7 @@ router.post("/", requireAuth, async (req, res) => {
     const advance_paid = Number(req.body.advance_paid) || 0;
     const people_count = Number(req.body.people_count) || 1;
 
-    // ── Validation ──────────────────────────────────────────
+    // ── Validation ──
     const missing = [];
     if (!booking_id) missing.push("booking_id");
     if (!customer_id) missing.push("customer_id");
@@ -148,14 +148,14 @@ router.post("/", requireAuth, async (req, res) => {
     const checkInStr = toMySQLDateTime(check_in);
     const checkOutStr = toMySQLDateTime(check_out);
 
-    // ── check_out must be after check_in ────────────────────
+    // ── check_out must be after check_in ───────
     if (checkInStr && checkOutStr && !dtLessThan(checkInStr, checkOutStr)) {
       return res
         .status(400)
         .json({ error: "Check-out must be after check-in" });
     }
 
-    // ── Resolve creator name ─────────────────────────────────
+    // ── Resolve creator name ──────
     const created_by_id = req.user.id;
     const created_by_role = req.user.role;
     let created_by_name = null;
@@ -176,7 +176,7 @@ router.post("/", requireAuth, async (req, res) => {
       created_by_name = staffRows[0]?.name || "Staff";
     }
 
-    // ── Validate room exists ─────────────────────────────────
+    // ── Validate room exists ──────
     const [roomRows] = await db.query(
       "SELECT id, capacity FROM rooms WHERE id = ?",
       [room_id],
@@ -185,7 +185,7 @@ router.post("/", requireAuth, async (req, res) => {
       return res.status(400).json({ error: "Invalid room selected" });
     }
 
-    // ── Availability check ───────────────────────────────────
+    // ── Availability check ────────
     const [availabilityRows] = await db.query(
       `SELECT COUNT(*) AS conflictCount
        FROM bookings
@@ -205,7 +205,7 @@ router.post("/", requireAuth, async (req, res) => {
 
     const bookingStatus = status || "Confirmed";
 
-    // ── Insert ───────────────────────────────────────────────
+    // ── Insert ───────
     // FIX: was missing `const [insertResult] = await db.query(` opener
     const [insertResult] = await db.query(
       `INSERT INTO bookings
@@ -231,7 +231,7 @@ router.post("/", requireAuth, async (req, res) => {
       ],
     );
 
-    // ── Insert into booking_addons table ─────────────────────
+    // ── Insert into booking_addons table ────────
     if (Array.isArray(add_ons) && add_ons.length > 0) {
       for (const addon of add_ons) {
         await db.query(

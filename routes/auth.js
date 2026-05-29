@@ -248,4 +248,71 @@ router.put("/change-password", requireAuth, async (req, res) => {
   }
 });
 
+/* ======================
+   SUBSCRIPTION STATUS
+====================== */
+router.get("/subscription-status", requireAuth, async (req, res) => {
+  try {
+    const hotelName = process.env.HOTEL_NAME;
+    if (!hotelName) {
+      return res.json({
+        isActive: true,
+        warningLevel: null,
+        expiry_date: null,
+      });
+    }
+
+    const studioDbName = process.env.STUDIO_DB_NAME || "studio_admin";
+
+    const [rows] = await db.query(
+      `SELECT isActive, expiry_date FROM \`${studioDbName}\`.enterprises WHERE enterprise = ? LIMIT 1`,
+      [hotelName],
+    );
+
+    const enterprise = rows[0];
+
+    if (!enterprise) {
+      return res.json({
+        isActive: true,
+        warningLevel: null,
+        expiry_date: null,
+      });
+    }
+
+    const isActive = Boolean(enterprise.isActive);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    let warningLevel = null;
+    let daysLeft = null;
+
+    if (enterprise.expiry_date) {
+      const [year, month, day] = enterprise.expiry_date.split("-").map(Number);
+      const expiry = new Date(year, month - 1, day);
+      daysLeft = Math.round((expiry - today) / (1000 * 60 * 60 * 24));
+
+      if (daysLeft < 0) {
+        // Already expired
+        warningLevel = "expired";
+      } else if (daysLeft <= 7) {
+        // Within 1 week — critical, shown every day
+        warningLevel = "critical";
+      } else if (daysLeft <= 30) {
+        // Within 1 month — warning, shown once per day
+        warningLevel = "warning";
+      }
+    }
+
+    return res.json({
+      isActive,
+      expiry_date: enterprise.expiry_date,
+      warningLevel,
+      daysLeft,
+    });
+  } catch (err) {
+    console.error("Subscription status error:", err);
+    res.status(500).json({ error: "Failed to check subscription" });
+  }
+});
+
 module.exports = router;

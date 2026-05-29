@@ -110,7 +110,9 @@ async function seedAdminUser() {
   const name = process.env.ADMIN_NAME || "Admin";
 
   try {
-    const [rows] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
+    const [rows] = await db.query("SELECT id FROM users WHERE email = ?", [
+      email,
+    ]);
     if (Array.isArray(rows) && rows.length > 0) {
       console.log("✅ Admin user already exists");
       return;
@@ -119,7 +121,7 @@ async function seedAdminUser() {
     const hashed = await bcrypt.hash(password, 10);
     await db.query(
       "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)",
-      [name, email, hashed, "admin"]
+      [name, email, hashed, "admin"],
     );
     console.log("✅ Admin user seeded:", email);
   } catch (err) {
@@ -134,19 +136,21 @@ async function seedKitchenUser() {
 
   try {
     const hashed = await bcrypt.hash(password, 10);
-    const [rows] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
+    const [rows] = await db.query("SELECT id FROM users WHERE email = ?", [
+      email,
+    ]);
 
     if (Array.isArray(rows) && rows.length > 0) {
       await db.query(
         "UPDATE users SET name = ?, password = ?, role = ?, staff_id = NULL WHERE email = ?",
-        [name, hashed, "kitchen", email]
+        [name, hashed, "kitchen", email],
       );
       return;
     }
 
     await db.query(
       "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)",
-      [name, email, hashed, "kitchen"]
+      [name, email, hashed, "kitchen"],
     );
     console.log("Kitchen user seeded:", email);
   } catch (err) {
@@ -163,7 +167,7 @@ async function initDatabase() {
 
     console.log("📁 Initializing database...");
 
-    // ── Step 1: Apply base schema ──────────────────────────────────────────
+    // ── Step 1: Apply base schema ──
     const schema = fs.readFileSync(schemaPath, "utf-8");
 
     const statements = schema
@@ -177,7 +181,7 @@ async function initDatabase() {
       } catch (err) {
         const errMsg = (err?.message || "").toLowerCase();
         const errCode = err?.code || "";
-        
+
         // Skip benign errors (table/column/index already exists)
         if (
           errMsg.includes("already exists") ||
@@ -187,7 +191,7 @@ async function initDatabase() {
         ) {
           continue;
         }
-        
+
         console.error("❌ Schema error:", err.message || err);
         console.error("   SQL:", stmt.substring(0, 120));
         throw err;
@@ -199,7 +203,7 @@ async function initDatabase() {
     // ── Step 2: Run migrations (adds missing columns to existing tables) ──
     await runMigrations();
 
-    // ── Step 3: Seed default admin user ───────────────────────────────────
+    // ── Step 3: Seed default admin user ────────
     await seedAdminUser();
     await seedKitchenUser();
 

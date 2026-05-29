@@ -6,7 +6,7 @@ const db = require("./database");
  * Add new migrations at the BOTTOM of this array only.
  */
 const migrations = [
-  // ── Bookings: columns added after initial schema ──────────────────────────
+  // ── Bookings: columns added after initial schema ─────────────
   `ALTER TABLE bookings ADD COLUMN advance_paid DECIMAL(10,2) DEFAULT 0`,
   `ALTER TABLE bookings ADD COLUMN add_ons TEXT DEFAULT '[]'`,
   `ALTER TABLE bookings ADD COLUMN people_count INT DEFAULT 1`,
@@ -14,28 +14,32 @@ const migrations = [
   `ALTER TABLE bookings ADD COLUMN created_by_name VARCHAR(255)`,
   `ALTER TABLE bookings ADD COLUMN created_by_role VARCHAR(255)`,
 
-  // ── Staff: columns added after initial schema ─────────────────────────────
+  // ── Staff: columns added after initial schema ──
   `ALTER TABLE staff ADD COLUMN phone VARCHAR(50) NOT NULL DEFAULT ''`,
   `ALTER TABLE staff ADD COLUMN status VARCHAR(50) NOT NULL DEFAULT 'active'`,
 
-  // ── Users: staff_id FK column ─────────────────────────────────────────────
+  // ── Users: staff_id FK column ─────
   `ALTER TABLE users ADD COLUMN staff_id INT`,
   `ALTER TABLE users MODIFY COLUMN role ENUM('admin','staff','kitchen') NOT NULL`,
 
-  // ── Billings: is_downloaded flag ──────────────────────────────────────────
+  // ── Billings: is_downloaded flag ──
   `ALTER TABLE billings ADD COLUMN is_downloaded TINYINT(1) DEFAULT 0`,
 
-  // ── Rooms: capacity column ────────────────────────────────────────────────
+  // ── Rooms: capacity column ────────
   `ALTER TABLE rooms ADD COLUMN capacity INT DEFAULT 2`,
 
-  // ── Discount support ──────────────────────────────────────────────────────
+  // ── Discount support ──────────────
   `ALTER TABLE bookings ADD COLUMN discount DECIMAL(10,2) DEFAULT 0`,
   `ALTER TABLE billings ADD COLUMN discount DECIMAL(10,2) DEFAULT 0`,
 ];
 
 async function columnExists(tableName, columnName) {
   const sql = `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1`;
-  const params = [process.env.MYSQL_DATABASE || process.env.DB_DATABASE || "hotel_pos", tableName, columnName];
+  const params = [
+    process.env.MYSQL_DATABASE || process.env.DB_DATABASE || "hotel_pos",
+    tableName,
+    columnName,
+  ];
 
   const [rows] = await db.query(sql, params);
   return Array.isArray(rows) && rows.length > 0;
@@ -43,14 +47,18 @@ async function columnExists(tableName, columnName) {
 
 async function runOne(sql) {
   try {
-    const alterMatch = /ALTER TABLE\s+`?(\w+)`?\s+ADD COLUMN\s+`?(\w+)`?/i.exec(sql);
+    const alterMatch = /ALTER TABLE\s+`?(\w+)`?\s+ADD COLUMN\s+`?(\w+)`?/i.exec(
+      sql,
+    );
 
     if (alterMatch) {
       const tableName = alterMatch[1];
       const columnName = alterMatch[2];
       const exists = await columnExists(tableName, columnName);
       if (exists) {
-        console.log(`  ⏭️  Skipped (column exists): ${tableName}.${columnName}`);
+        console.log(
+          `  ⏭️  Skipped (column exists): ${tableName}.${columnName}`,
+        );
         return;
       }
     }
@@ -59,8 +67,14 @@ async function runOne(sql) {
     console.log(`  ✅ Applied: ${sql.substring(0, 80)}...`);
   } catch (err) {
     const message = (err?.message || "").toLowerCase();
-    if (message.includes("duplicate column") || message.includes("already exists") || message.includes("duplicate key")) {
-      console.log(`  ⏭️  Skipped (already applied/exists): ${sql.substring(0, 80)}...`);
+    if (
+      message.includes("duplicate column") ||
+      message.includes("already exists") ||
+      message.includes("duplicate key")
+    ) {
+      console.log(
+        `  ⏭️  Skipped (already applied/exists): ${sql.substring(0, 80)}...`,
+      );
       return;
     }
 

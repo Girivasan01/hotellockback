@@ -1,18 +1,20 @@
 const mysql = require("mysql2/promise");
 
-const host     = process.env.MYSQL_HOST     || process.env.DB_HOST     || "localhost";
-const user     = process.env.MYSQL_USER     || process.env.DB_USER     || "root";
-const password = process.env.MYSQL_PASSWORD || process.env.DB_PASSWORD || "root";
-const database = process.env.MYSQL_DATABASE || process.env.DB_DATABASE || "hotel_pos";
-const port     = process.env.MYSQL_PORT
+const host = process.env.MYSQL_HOST || process.env.DB_HOST || "localhost";
+const user = process.env.MYSQL_USER || process.env.DB_USER || "root";
+const password =
+  process.env.MYSQL_PASSWORD || process.env.DB_PASSWORD || "root";
+const database =
+  process.env.MYSQL_DATABASE || process.env.DB_DATABASE || "hotel_pos";
+const port = process.env.MYSQL_PORT
   ? Number(process.env.MYSQL_PORT)
   : process.env.DB_PORT
-  ? Number(process.env.DB_PORT)
-  : 3306;
+    ? Number(process.env.DB_PORT)
+    : 3306;
 
-// ─────────────────────────────────────────────────────────────
+// ───────
 // TWO TIMEZONE FIXES REQUIRED
-// ─────────────────────────────────────────────────────────────
+// ───────
 //
 // PROBLEM 1 — READ path shift (the 6:30 PM bug):
 //   mysql2 converts DATETIME columns → JS Date objects by default.
@@ -32,7 +34,7 @@ const port     = process.env.MYSQL_PORT
 //   FIX: timezone: '+05:30'
 //   mysql2 runs "SET time_zone = '+05:30'" on each new connection.
 //   NOW() inside that session returns IST time → stored correctly.
-// ─────────────────────────────────────────────────────────────
+// ───────
 
 const pool = mysql.createPool({
   host,
@@ -97,7 +99,7 @@ module.exports = {
     try {
       const [result] = await pool.query(sql, params || []);
       const info = {
-        lastID:  result.insertId,
+        lastID: result.insertId,
         changes: result.affectedRows,
       };
       if (callback) callback(null, info);

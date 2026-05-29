@@ -12,10 +12,11 @@ class InvoiceService {
   async getInvoiceData(billingId) {
     const billing = await dbService.get(
       `SELECT b.*, c.name as customer_name, c.address as customer_address, c.contact as customer_contact,
-              COALESCE(r_live.room_number, r_stale.room_number) as room_number,
-              COALESCE(r_live.category, r_stale.category) as category,
-              COALESCE(bk.people_count, 1) as pax,
-              u.name as billed_by_name, u.role as billed_by_role
+        COALESCE(r_live.room_number, r_stale.room_number) as room_number,
+        COALESCE(r_live.category, r_stale.category) as category,
+        COALESCE(bk.people_count, 1) as pax,
+        u.name as billed_by_name, u.role as billed_by_role,
+        bk.check_in as booking_check_in, bk.check_out as booking_check_out
        FROM billings b
        LEFT JOIN bookings bk ON b.booking_id = bk.booking_id
        LEFT JOIN rooms r_live ON bk.room_id = r_live.id
@@ -23,7 +24,7 @@ class InvoiceService {
        LEFT JOIN customers c ON b.customer_id = c.id
        LEFT JOIN users u ON b.billed_by_id = u.id
        WHERE b.id = ?`,
-      [billingId]
+      [billingId],
     );
 
     if (!billing) {
@@ -32,7 +33,7 @@ class InvoiceService {
 
     const lines = await dbService.all(
       `SELECT * FROM invoices WHERE billing_id = ? ORDER BY type, id`,
-      [billingId]
+      [billingId],
     );
 
     const groupedLines = this._groupLines(lines);
@@ -123,11 +124,10 @@ class InvoiceService {
     const kitchenTotal = this._sumLineSubtotal(kitchenLines);
     const addonTotal = this._sumLineSubtotal(addonLines);
     const lineDiscountTotal = Math.abs(this._sumLineSubtotal(discountLines));
-    const stayDays = roomLines[0]?.quantity
-      ? Number(roomLines[0].quantity || 1)
-      : undefined;
+    const stayDays = undefined;
     const roomRatePerNight =
-      roomLines[0]?.unit_price !== undefined && roomLines[0]?.unit_price !== null
+      roomLines[0]?.unit_price !== undefined &&
+      roomLines[0]?.unit_price !== null
         ? Number(roomLines[0].unit_price || 0)
         : undefined;
     const discount =
@@ -136,8 +136,8 @@ class InvoiceService {
         : lineDiscountTotal;
 
     const calculation = calculateBillingTotals({
-      checkIn: billing.check_in,
-      checkOut: billing.check_out,
+      checkIn: billing.booking_check_in || billing.check_in,
+      checkOut: billing.booking_check_out || billing.check_out,
       stayDays,
       roomRatePerNight,
       roomTotal,
@@ -164,7 +164,7 @@ class InvoiceService {
       gst_rate_avg:
         calculation.subtotal > 0
           ? Number(
-              ((calculation.gstAmount / calculation.subtotal) * 100).toFixed(1)
+              ((calculation.gstAmount / calculation.subtotal) * 100).toFixed(1),
             )
           : 0,
       gst_breakdown: calculation.gstBreakdown,
