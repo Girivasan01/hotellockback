@@ -268,14 +268,44 @@ router.get("/subscription-status", requireAuth, async (req, res) => {
       });
     }
 
-    const studioDbName = process.env.STUDIO_DB_NAME || "studio_admin";
+    const studioDbName = process.env.STUDIO_DB_NAME;
+    if (!studioDbName) {
+      console.warn(
+        "Subscription status: STUDIO_DB_NAME not configured, skipping external subscription lookup.",
+      );
+      return res.json({
+        isActive: true,
+        warningLevel: null,
+        expiry_date: null,
+      });
+    }
 
-    const [rows] = await db.query(
-      `SELECT isActive, expiry_date FROM \`${studioDbName}\`.enterprises WHERE id = ? LIMIT 1`,
-      [orgId],
-    );
+    let enterprise;
+    try {
+      const [rows] = await db.query(
+        `SELECT isActive, expiry_date FROM \`${studioDbName}\`.enterprises WHERE id = ? LIMIT 1`,
+        [orgId],
+      );
+      enterprise = rows[0];
+    } catch (err) {
+      console.warn(
+        "Subscription status: failed to access external studio DB. Defaulting to active subscription.",
+        err.message,
+      );
+      return res.json({
+        isActive: true,
+        warningLevel: null,
+        expiry_date: null,
+      });
+    }
 
-    const enterprise = rows[0];
+    if (!enterprise) {
+      return res.json({
+        isActive: true,
+        warningLevel: null,
+        expiry_date: null,
+      });
+    }
 
     if (!enterprise) {
       return res.json({
