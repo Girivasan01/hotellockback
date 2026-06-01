@@ -1,23 +1,14 @@
 const mysql = require("mysql2/promise");
 
-const host = process.env.MYSQL_HOST || process.env.DB_HOST || "localhost";
-const user = process.env.MYSQL_USER || process.env.DB_USER || "root";
-const password =
-  process.env.MYSQL_PASSWORD || process.env.DB_PASSWORD || "root";
-const database =
-  process.env.MYSQL_DATABASE || process.env.DB_DATABASE || "hotel_pos";
-const port = process.env.MYSQL_PORT
-  ? Number(process.env.MYSQL_PORT)
-  : process.env.DB_PORT
-    ? Number(process.env.DB_PORT)
-    : 3306;
-
 const pool = mysql.createPool({
-  host,
-  user,
-  password,
-  database,
-  port,
+  host: "srv786.hstgr.io",
+  user: "u683444186_lock",
+  password: "Lockhotel2026",
+  database: "u683444186_lock",
+  port: 3306,
+
+  connectTimeout: 10000,
+
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
