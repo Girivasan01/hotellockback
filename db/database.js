@@ -1,30 +1,45 @@
 const mysql = require("mysql2/promise");
 
 const pool = mysql.createPool({
-  host: "srv786.hstgr.io",
+  host: "82.25.121.140", // force IPv4
+  port: 3306,
+
   user: "u683444186_lock",
   password: "Lockhotel2026",
   database: "u683444186_lock",
-  port: 3306,
 
-  connectTimeout: 10000,
+  ssl: {
+    rejectUnauthorized: false,
+  },
+
+  connectTimeout: 30000,
 
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  charset: "utf8mb4_unicode_ci",
+
+  charset: "utf8mb4",
   dateStrings: true,
   timezone: "+05:30",
 });
 
 async function testConnection() {
   try {
+    console.time("mysql-connect");
+
     const connection = await pool.getConnection();
+
     await connection.ping();
-    console.log("✅ MySQL connected");
+
+    console.timeEnd("mysql-connect");
+    console.log("✅ MySQL connected successfully");
+
     connection.release();
   } catch (err) {
-    console.error("❌ MySQL connection error:", err);
+    console.error("❌ MySQL connection error");
+    console.error("Code:", err.code);
+    console.error("Message:", err.message);
+    console.error(err);
   }
 }
 
@@ -40,7 +55,7 @@ module.exports = {
   get: async (sql, params, callback) => {
     try {
       const [rows] = await pool.query(sql, params || []);
-      callback(null, rows[0] || undefined);
+      callback(null, rows[0]);
     } catch (err) {
       callback(err);
     }
@@ -58,11 +73,14 @@ module.exports = {
   run: async (sql, params, callback) => {
     try {
       const [result] = await pool.query(sql, params || []);
+
       const ctx = {
         lastID: result.insertId,
         changes: result.affectedRows,
       };
+
       if (callback) callback.call(ctx, null, ctx);
+
       return ctx;
     } catch (err) {
       if (callback) callback(err);
