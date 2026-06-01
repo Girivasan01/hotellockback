@@ -291,20 +291,29 @@ router.get("/subscription-status", requireAuth, async (req, res) => {
 
     let warningLevel = null;
     let daysLeft = null;
+    let expiry = null;
 
     if (enterprise.expiry_date) {
-      const [year, month, day] = enterprise.expiry_date.split("-").map(Number);
-      const expiry = new Date(year, month - 1, day);
+      if (enterprise.expiry_date instanceof Date) {
+        expiry = enterprise.expiry_date;
+      } else if (typeof enterprise.expiry_date === "string") {
+        const [year, month, day] = enterprise.expiry_date
+          .split("-")
+          .map(Number);
+        expiry = new Date(year, month - 1, day);
+      } else if (typeof enterprise.expiry_date === "number") {
+        expiry = new Date(enterprise.expiry_date);
+      }
+    }
+
+    if (expiry) {
       daysLeft = Math.round((expiry - today) / (1000 * 60 * 60 * 24));
 
       if (daysLeft < 0) {
-        // Already expired
         warningLevel = "expired";
       } else if (daysLeft <= 7) {
-        // Within 1 week — critical, shown every day
         warningLevel = "critical";
       } else if (daysLeft <= 30) {
-        // Within 1 month — warning, shown once per day
         warningLevel = "warning";
       }
     }
