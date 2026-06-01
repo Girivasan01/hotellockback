@@ -1,40 +1,38 @@
 const mysql = require("mysql2/promise");
 
-const host = process.env.MYSQL_HOST || process.env.DB_HOST || "srv786.hstgr.io";
-const user = process.env.MYSQL_USER || process.env.DB_USER || "u683444186_lock";
+const host =
+  process.env.MYSQL_HOST ||
+  process.env.DB_HOST ||
+  "srv786.hstgr.io";
+
+const user =
+  process.env.MYSQL_USER ||
+  process.env.DB_USER ||
+  "u683444186_lock";
+
 const password =
-  process.env.MYSQL_PASSWORD || process.env.DB_PASSWORD || "Lockhotel2026";
+  process.env.MYSQL_PASSWORD ||
+  process.env.DB_PASSWORD ||
+  "Lockhotel2026";
+
 const database =
-  process.env.MYSQL_DATABASE || process.env.DB_DATABASE || "u683444186_lock";
+  process.env.MYSQL_DATABASE ||
+  process.env.DB_DATABASE ||
+  "u683444186_lock";
+
 const port = process.env.MYSQL_PORT
   ? Number(process.env.MYSQL_PORT)
   : process.env.DB_PORT
-    ? Number(process.env.DB_PORT)
-    : 3306;
+  ? Number(process.env.DB_PORT)
+  : 3306;
 
-// ───────
-// TWO TIMEZONE FIXES REQUIRED
-// ───────
-//
-// PROBLEM 1 — READ path shift (the 6:30 PM bug):
-//   mysql2 converts DATETIME columns → JS Date objects by default.
-//   res.json() then calls Date.toISOString() → UTC string.
-//   Production MySQL is UTC, so "13:00:00 IST" serialises as "07:30:00Z"
-//   and the frontend displays 6:30 PM instead of 1:00 PM.
-//
-//   FIX: dateStrings: true
-//   mysql2 returns raw "YYYY-MM-DD HH:mm:ss" strings instead of Date objects.
-//   res.json() serialises strings as-is → no conversion possible.
-//
-// PROBLEM 2 — NOW() in SQL queries:
-//   checkoutService.js uses NOW() for checkout timestamps.
-//   NOW() returns the MySQL SERVER's current time.
-//   Production MySQL server = UTC → NOW() returns UTC time → stored & displayed wrong.
-//
-//   FIX: timezone: '+05:30'
-//   mysql2 runs "SET time_zone = '+05:30'" on each new connection.
-//   NOW() inside that session returns IST time → stored correctly.
-// ───────
+console.log("📡 MySQL Config:");
+console.log({
+  host,
+  user,
+  database,
+  port,
+});
 
 const pool = mysql.createPool({
   host,
@@ -42,44 +40,85 @@ const pool = mysql.createPool({
   password,
   database,
   port,
+
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
+
+  connectTimeout: 60000,
+
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 0,
+
   charset: "utf8mb4_unicode_ci",
 
-  // ✅ FIX 1: Return DATETIME/DATE/TIMESTAMP columns as plain strings.
-  // Prevents mysql2 from constructing JS Date objects that get UTC-serialised.
+  // Prevent mysql2 from converting dates to JS Date objects
   dateStrings: true,
 
-  // ✅ FIX 2: Set the MySQL session timezone to IST on every connection.
-  // This ensures NOW() inside SQL queries returns IST time, not UTC.
-  // Affects: checkoutService checkout timestamp, billing check_out, any future NOW() usage.
+  // Use IST session timezone
   timezone: "+05:30",
 });
 
 async function testConnection() {
   try {
     const connection = await pool.getConnection();
+
     await connection.ping();
+
     console.log("✅ MySQL connected");
+
     connection.release();
   } catch (err) {
-    console.error("❌ MySQL connection error:", err);
+    console.error("❌ MySQL connection error:");
+    console.error(err);
   }
 }
 
 testConnection();
 
-pool.on("error", (err) => {
+async function queryWithRetry(sql, params = [], retries = 3) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await pool.query(sql, params);
+    } catch (err) {
+      lastError = err;
+
+      console.error(
+        `❌ DB Query Failed (Attempt ${attempt}/${retries})`
+      );
+      console.error("Code:", err.code);
+      console.error("Message:", err.message);
+
+      if (
+        err.code !== "ETIMEDOUT" &&
+        err.code !== "PROTOCOL_CONNECTION_LOST" &&
+        err.code !== "ECONNRESET"
+      ) {
+        throw err;
+      }
+
+      if (attempt < retries) {
+        console.log("🔄 Retrying database query...");
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+pool.on?.("error", (err) => {
   console.error("💥 MySQL Pool Error:", err);
 });
 
 module.exports = {
-  query: (...args) => pool.query(...args),
+  query: queryWithRetry,
 
   get: async (sql, params, callback) => {
     try {
-      const [rows] = await pool.query(sql, params || []);
+      const [rows] = await queryWithRetry(sql, params || []);
       callback(null, rows[0] || undefined);
     } catch (err) {
       callback(err);
@@ -88,7 +127,7 @@ module.exports = {
 
   all: async (sql, params, callback) => {
     try {
-      const [rows] = await pool.query(sql, params || []);
+      const [rows] = await queryWithRetry(sql, params || []);
       callback(null, rows);
     } catch (err) {
       callback(err);
@@ -97,18 +136,26 @@ module.exports = {
 
   run: async (sql, params, callback) => {
     try {
-      const [result] = await pool.query(sql, params || []);
+      const [result] = await queryWithRetry(sql, params || []);
+
       const info = {
         lastID: result.insertId,
         changes: result.affectedRows,
       };
+
       if (callback) callback(null, info);
+
       return info;
     } catch (err) {
-      if (callback) callback(err);
-      else throw err;
+      if (callback) {
+        callback(err);
+      } else {
+        throw err;
+      }
     }
   },
 
   pool,
+
+  testConnection,
 };
