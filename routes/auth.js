@@ -307,14 +307,6 @@ router.get("/subscription-status", requireAuth, async (req, res) => {
       });
     }
 
-    if (!enterprise) {
-      return res.json({
-        isActive: true,
-        warningLevel: null,
-        expiry_date: null,
-      });
-    }
-
     const isActive = Boolean(enterprise.isActive);
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
