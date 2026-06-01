@@ -21,33 +21,35 @@ const requireAuth = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
 
-    let name = null;
+    const [userRows] = await db.query(
+      "SELECT id, name, email, role, staff_id, org_id FROM users WHERE id = ? LIMIT 1",
+      [decoded.id],
+    );
+    const userRow = userRows[0];
 
-    // 🔥 FETCH NAME BASED ON ROLE
-    if (decoded.role === "admin" || decoded.role === "kitchen") {
-      const [rows] = await db.query(
-        "SELECT name FROM users WHERE id = ?",
-        [decoded.id]
-      );
-      name = rows[0]?.name || (decoded.role === "kitchen" ? "Kitchen" : "Admin User");
+    if (!userRow) {
+      return res.status(401).json({ message: "Invalid token" });
     }
 
-    if (decoded.role === "staff") {
+    let name = userRow.name;
+
+    if (userRow.role === "staff" && userRow.staff_id) {
       const [rows] = await db.query(
         `SELECT s.name 
-         FROM users u 
-         JOIN staff s ON u.staff_id = s.id 
-         WHERE u.id = ?`,
-        [decoded.id]
+         FROM staff s 
+         WHERE s.id = ?`,
+        [userRow.staff_id],
       );
-      name = rows[0]?.name || "Staff";
+      name = rows[0]?.name || name || "Staff";
     }
 
-    // ✅ FINAL USER OBJECT
     req.user = {
-      id: decoded.id,
-      role: decoded.role,
-      name: name,
+      id: userRow.id,
+      role: userRow.role,
+      name,
+      staffId: userRow.staff_id,
+      org_id: userRow.org_id ?? decoded.org_id ?? null,
+      email: userRow.email,
     };
 
     next();

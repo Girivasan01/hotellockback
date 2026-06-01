@@ -9,7 +9,7 @@ class InvoiceService {
   /**
    * Get complete invoice data for billing (line items + totals)
    */
-  async getInvoiceData(billingId) {
+  async getInvoiceData(billingId, orgId) {
     const billing = await dbService.get(
       `SELECT b.*, c.name as customer_name, c.address as customer_address, c.contact as customer_contact,
         COALESCE(r_live.room_number, r_stale.room_number) as room_number,
@@ -18,13 +18,13 @@ class InvoiceService {
         u.name as billed_by_name, u.role as billed_by_role,
         bk.check_in as booking_check_in, bk.check_out as booking_check_out
        FROM billings b
-       LEFT JOIN bookings bk ON b.booking_id = bk.booking_id
-       LEFT JOIN rooms r_live ON bk.room_id = r_live.id
-       LEFT JOIN rooms r_stale ON b.room_id = r_stale.id
-       LEFT JOIN customers c ON b.customer_id = c.id
+       LEFT JOIN bookings bk ON b.booking_id = bk.booking_id AND bk.org_id = b.org_id
+       LEFT JOIN rooms r_live ON bk.room_id = r_live.id AND r_live.org_id = b.org_id
+       LEFT JOIN rooms r_stale ON b.room_id = r_stale.id AND r_stale.org_id = b.org_id
+       LEFT JOIN customers c ON b.customer_id = c.id AND c.org_id = b.org_id
        LEFT JOIN users u ON b.billed_by_id = u.id
-       WHERE b.id = ?`,
-      [billingId],
+       WHERE b.id = ? AND b.org_id = ?`,
+      [billingId, orgId],
     );
 
     if (!billing) {

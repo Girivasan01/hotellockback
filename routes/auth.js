@@ -49,7 +49,7 @@ const buildLoginHandler = ({
       }
 
       const token = jwt.sign(
-        { id: user.id, role: user.role },
+        { id: user.id, role: user.role, org_id: user.org_id ?? null },
         process.env.JWT_SECRET,
         {
           expiresIn: "24h",
@@ -60,9 +60,10 @@ const buildLoginHandler = ({
       res.json({ token, user: safeUser });
     } catch (err) {
       console.error("LOGIN ERROR:", err);
-      res
-        .status(500)
-        .json({ message: "Internal server error", error: err.message });
+      res.status(500).json({
+        message: "Internal server error",
+        ...(process.env.NODE_ENV !== "production" && { error: err.message }),
+      });
     }
   };
 };
@@ -117,17 +118,16 @@ router.post(
 
       const hash = await bcrypt.hash(password, 10);
 
-      // Inherit org from the admin creating this user
-      const [adminRows] = await db.query(
-        "SELECT org_id, org_name FROM users WHERE id = ? LIMIT 1",
-        [req.user.id],
-      );
-      const org_id = adminRows[0]?.org_id ?? null;
-      const org_name = adminRows[0]?.org_name ?? null;
+      const org_id = req.user.org_id;
+      if (!org_id) {
+        return res
+          .status(403)
+          .json({ message: "Your account is not linked to an organization" });
+      }
 
       const [result] = await db.query(
-        "INSERT INTO users (name, email, password, role, org_id, org_name) VALUES (?, ?, ?, 'kitchen', ?, ?)",
-        [name, email, hash, org_id, org_name],
+        "INSERT INTO users (name, email, password, role, org_id) VALUES (?, ?, ?, 'kitchen', ?)",
+        [name, email, hash, org_id],
       );
 
       res.status(201).json({
@@ -186,10 +186,16 @@ router.get("/profile", requireAuth, async (req, res) => {
 /* ======================
    STAFF LIST (PUBLIC)
 ====================== */
-router.get("/staff-list", async (req, res) => {
+router.get("/staff-list", requireAuth, async (req, res) => {
   try {
+    const orgId = req.user.org_id;
+    if (!orgId) {
+      return res.status(403).json({ message: "Organization required" });
+    }
+
     const [staffList] = await db.query(
-      "SELECT id, name FROM staff WHERE status = 'active' ORDER BY name",
+      "SELECT id, name FROM staff WHERE status = 'active' AND org_id = ? ORDER BY name",
+      [orgId],
     );
     res.json(staffList);
   } catch (err) {
@@ -253,8 +259,8 @@ router.put("/change-password", requireAuth, async (req, res) => {
 ====================== */
 router.get("/subscription-status", requireAuth, async (req, res) => {
   try {
-    const hotelName = process.env.HOTEL_NAME;
-    if (!hotelName) {
+    const orgId = req.user.org_id;
+    if (!orgId) {
       return res.json({
         isActive: true,
         warningLevel: null,
@@ -265,8 +271,8 @@ router.get("/subscription-status", requireAuth, async (req, res) => {
     const studioDbName = process.env.STUDIO_DB_NAME || "studio_admin";
 
     const [rows] = await db.query(
-      `SELECT isActive, expiry_date FROM \`${studioDbName}\`.enterprises WHERE enterprise = ? LIMIT 1`,
-      [hotelName],
+      `SELECT isActive, expiry_date FROM \`${studioDbName}\`.enterprises WHERE id = ? LIMIT 1`,
+      [orgId],
     );
 
     const enterprise = rows[0];

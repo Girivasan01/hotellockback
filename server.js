@@ -6,16 +6,25 @@ const cookieParser = require("cookie-parser");
 const bcrypt = require("bcryptjs");
 require("dotenv").config();
 
+const isProd = process.env.NODE_ENV === "production";
+
+if (isProd && !process.env.JWT_SECRET) {
+  console.error("FATAL: JWT_SECRET is required in production");
+  process.exit(1);
+}
+
 const db = require("./db/database");
-const { runMigrations } = require("./db/migrate"); // ✅ Import migrations
+const { runMigrations } = require("./db/migrate");
+const { requireAuth } = require("./middleware/auth");
+const { requireOrg } = require("./middleware/org");
 
 // ================= GLOBAL CRASH HANDLER =================
 process.on("uncaughtException", (err) => {
-  console.error("💥 Uncaught Exception:", err);
+  console.error("Uncaught Exception:", err);
 });
 
 process.on("unhandledRejection", (err) => {
-  console.error("💥 Unhandled Rejection:", err);
+  console.error("Unhandled Rejection:", err);
 });
 
 // ================= ROUTES =================
@@ -37,7 +46,6 @@ const invoiceRoutes = require("./routes/invoice");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ================= DB READY FLAG =================
 let isDbReady = false;
 
 // ================= CORS CONFIG =================
@@ -56,13 +64,9 @@ const configuredClientUrls = [
 
 const isAllowedOrigin = (origin) => {
   if (!origin) return true;
-
   const normalizedOrigin = normalizeOrigin(origin);
-
-  if (configuredClientUrls.includes(normalizedOrigin)) {
-    return true;
-  }
-
+  if (configuredClientUrls.includes(normalizedOrigin)) return true;
+  if (isProd) return false;
   return (
     normalizedOrigin.includes(".netlify.app") ||
     normalizedOrigin.includes("localhost") ||
@@ -73,11 +77,8 @@ const isAllowedOrigin = (origin) => {
 
 const corsOptions = {
   origin: function (origin, callback) {
-    if (isAllowedOrigin(origin)) {
-      return callback(null, true);
-    }
-
-    console.log("❌ CORS blocked:", origin, "allowed:", configuredClientUrls);
+    if (isAllowedOrigin(origin)) return callback(null, true);
+    console.log("CORS blocked:", origin);
     return callback(null, false);
   },
   credentials: true,
@@ -86,9 +87,6 @@ const corsOptions = {
   optionsSuccessStatus: 204,
 };
 
-console.log("🌐 Allowed CORS origins:", configuredClientUrls);
-
-// ✅ Apply CORS — must be before everything else
 app.options(/.*/, cors(corsOptions));
 app.use(cors(corsOptions));
 
@@ -100,57 +98,48 @@ app.use(cookieParser());
 // ================= STATIC FILES =================
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// ================= DATABASE PATH =================
-const schemaPath = path.join(__dirname, "db/schema.sql");
-
-// ================= SEED ADMIN USER =================
+// ================= SEED USERS =================
 async function seedAdminUser() {
+  if (isProd && !process.env.ADMIN_PASSWORD) {
+    return;
+  }
+
   const email = process.env.ADMIN_EMAIL || "admin@hotel.com";
   const password = process.env.ADMIN_PASSWORD || "Admin@2025#";
   const name = process.env.ADMIN_NAME || "Admin";
 
   try {
-    const [rows] = await db.query("SELECT id FROM users WHERE email = ?", [
-      email,
-    ]);
-    if (Array.isArray(rows) && rows.length > 0) {
-      console.log("✅ Admin user already exists");
-      return;
-    }
+    const [rows] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
+    if (Array.isArray(rows) && rows.length > 0) return;
 
     const hashed = await bcrypt.hash(password, 10);
     await db.query(
       "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)",
-      [name, email, hashed, "admin"],
+      [name, email, hashed, "admin"]
     );
-    console.log("✅ Admin user seeded:", email);
+    console.log("Admin user seeded:", email);
   } catch (err) {
-    console.error("❌ Seed admin error:", err.message || err);
+    console.error("Seed admin error:", err.message || err);
   }
 }
 
 async function seedKitchenUser() {
+  if (isProd && !process.env.KITCHEN_PASSWORD) {
+    return;
+  }
+
   const email = process.env.KITCHEN_EMAIL || "kitchen@hotel.com";
   const password = process.env.KITCHEN_PASSWORD || "kitchen123";
   const name = process.env.KITCHEN_NAME || "Kitchen";
 
   try {
+    const [rows] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
+    if (Array.isArray(rows) && rows.length > 0) return;
+
     const hashed = await bcrypt.hash(password, 10);
-    const [rows] = await db.query("SELECT id FROM users WHERE email = ?", [
-      email,
-    ]);
-
-    if (Array.isArray(rows) && rows.length > 0) {
-      await db.query(
-        "UPDATE users SET name = ?, password = ?, role = ?, staff_id = NULL WHERE email = ?",
-        [name, hashed, "kitchen", email],
-      );
-      return;
-    }
-
     await db.query(
       "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)",
-      [name, email, hashed, "kitchen"],
+      [name, email, hashed, "kitchen"]
     );
     console.log("Kitchen user seeded:", email);
   } catch (err) {
@@ -161,15 +150,13 @@ async function seedKitchenUser() {
 // ================= INIT DATABASE =================
 async function initDatabase() {
   try {
+    const schemaPath = path.join(__dirname, "db/schema.sql");
+
     if (!fs.existsSync(schemaPath)) {
       throw new Error("schema.sql not found at: " + schemaPath);
     }
 
-    console.log("📁 Initializing database...");
-
-    // ── Step 1: Apply base schema ──
     const schema = fs.readFileSync(schemaPath, "utf-8");
-
     const statements = schema
       .split(";")
       .map((s) => s.trim())
@@ -181,46 +168,32 @@ async function initDatabase() {
       } catch (err) {
         const errMsg = (err?.message || "").toLowerCase();
         const errCode = err?.code || "";
-
-        // Skip benign errors (table/column/index already exists)
         if (
           errMsg.includes("already exists") ||
           errMsg.includes("duplicate column") ||
           errMsg.includes("check constraint") ||
-          errCode === "ER_DUP_KEYNAME" // duplicate index name
+          errCode === "ER_DUP_KEYNAME"
         ) {
           continue;
         }
-
-        console.error("❌ Schema error:", err.message || err);
-        console.error("   SQL:", stmt.substring(0, 120));
+        console.error("Schema error:", err.message || err);
         throw err;
       }
     }
 
-    console.log("✅ Base schema applied");
-
-    // ── Step 2: Run migrations (adds missing columns to existing tables) ──
     await runMigrations();
-
-    // ── Step 3: Seed default admin user ────────
     await seedAdminUser();
     await seedKitchenUser();
 
-    console.log("✅ Database initialized successfully");
+    console.log("Database ready");
     isDbReady = true;
   } catch (err) {
-    console.error("❌ DB Init Error:", err.message || err);
-    // isDbReady stays false → 503 middleware handles requests gracefully
+    console.error("DB init error:", err.message || err);
   }
 }
 
 // ================= DB READY MIDDLEWARE =================
 app.use((req, res, next) => {
-  if (req.method === "OPTIONS") {
-    return next();
-  }
-
   if (!isDbReady) {
     return res.status(503).json({
       success: false,
@@ -232,9 +205,31 @@ app.use((req, res, next) => {
 
 // ================= HEALTH CHECK =================
 app.get("/", (req, res) => {
-  res.json({
-    status: "ok",
-    db: isDbReady ? "ready" : "initializing",
+  res.json({ status: "ok", db: isDbReady ? "ready" : "initializing" });
+});
+
+// ================= API AUTH + ORG (multi-tenant) =================
+const PUBLIC_API_PATHS = new Set([
+  "/api/auth/login",
+  "/api/auth/kitchen-login",
+]);
+
+/** Authenticated but org not required (profile, subscription check before org assigned). */
+const AUTH_ONLY_API_PATHS = new Set([
+  "/api/auth/profile",
+  "/api/auth/change-password",
+  "/api/auth/logout",
+  "/api/auth/subscription-status",
+]);
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith("/api")) return next();
+  if (req.method === "OPTIONS") return next();
+  if (PUBLIC_API_PATHS.has(req.path)) return next();
+
+  requireAuth(req, res, () => {
+    if (AUTH_ONLY_API_PATHS.has(req.path)) return next();
+    requireOrg(req, res, next);
   });
 });
 
@@ -260,16 +255,16 @@ app.use((req, res) => {
 
 // ================= ERROR HANDLER =================
 app.use((err, req, res, next) => {
-  console.error("🔥 Server Error:", err.stack || err.message);
+  console.error("Server error:", err.stack || err.message);
   res.status(500).json({
     success: false,
-    message: err.message || "Internal Server Error",
+    message: isProd ? "Internal Server Error" : err.message || "Internal Server Error",
   });
 });
 
 // ================= START SERVER =================
 initDatabase().then(() => {
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`✅ Server running on port ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
   });
 });

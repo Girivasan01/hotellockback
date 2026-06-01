@@ -24,47 +24,52 @@ function getSingle(sql, params = []) {
 exports.getSummary = async (req, res) => {
   try {
     const today = new Date().toISOString().slice(0, 10);
+    const orgId = req.orgId;
 
-    // Room stats
-    const totalRooms = await getSingle("SELECT COUNT(*) AS cnt FROM rooms");
+    const totalRooms = await getSingle(
+      "SELECT COUNT(*) AS cnt FROM rooms WHERE org_id = ?",
+      [orgId],
+    );
     const availableRooms = await getSingle(
-      "SELECT COUNT(*) AS cnt FROM rooms WHERE status = 'Available'"
+      "SELECT COUNT(*) AS cnt FROM rooms WHERE status = 'Available' AND org_id = ?",
+      [orgId],
     );
     const occupiedRooms = await getSingle(
-      "SELECT COUNT(*) AS cnt FROM rooms WHERE status = 'Occupied'"
+      "SELECT COUNT(*) AS cnt FROM rooms WHERE status = 'Occupied' AND org_id = ?",
+      [orgId],
     );
     const maintenanceRooms = await getSingle(
-      "SELECT COUNT(*) AS cnt FROM rooms WHERE status LIKE '%Maintenance%'"
+      "SELECT COUNT(*) AS cnt FROM rooms WHERE status LIKE '%Maintenance%' AND org_id = ?",
+      [orgId],
     );
 
-    // Booking stats
     const todaysCheckins = await getSingle(
-      "SELECT COUNT(*) AS cnt FROM bookings WHERE DATE(check_in) = DATE(?)",
-      [today]
+      "SELECT COUNT(*) AS cnt FROM bookings WHERE DATE(check_in) = DATE(?) AND org_id = ?",
+      [today, orgId],
     );
     const todaysCheckouts = await getSingle(
-      "SELECT COUNT(*) AS cnt FROM bookings WHERE DATE(check_out) = DATE(?)",
-      [today]
+      "SELECT COUNT(*) AS cnt FROM bookings WHERE DATE(check_out) = DATE(?) AND org_id = ?",
+      [today, orgId],
     );
     const activeBookings = await getSingle(
-      "SELECT COUNT(*) AS cnt FROM bookings WHERE status IN ('Confirmed','Checked-in')"
+      "SELECT COUNT(*) AS cnt FROM bookings WHERE status IN ('Confirmed','Checked-in') AND org_id = ?",
+      [orgId],
     );
 
-    // Revenue
     const todaysRevenue = await getSingle(
-      "SELECT IFNULL(SUM(total_amount), 0) AS sum FROM billings WHERE DATE(created_at) = DATE(?)",
-      [today]
+      "SELECT IFNULL(SUM(total_amount), 0) AS sum FROM billings WHERE DATE(created_at) = DATE(?) AND org_id = ?",
+      [today, orgId],
     );
 
-    // Recent Check-ins (latest 5)
     const recentCheckins = await query(
       `SELECT c.name, r.room_number AS room, b.check_in AS date
        FROM bookings b
-       JOIN customers c ON c.id = b.customer_id
-       JOIN rooms r ON r.id = b.room_id
-       WHERE b.status IN ('Confirmed','Checked-in')
+       JOIN customers c ON c.id = b.customer_id AND c.org_id = b.org_id
+       JOIN rooms r ON r.id = b.room_id AND r.org_id = b.org_id
+       WHERE b.status IN ('Confirmed','Checked-in') AND b.org_id = ?
        ORDER BY b.check_in DESC
-       LIMIT 5`
+       LIMIT 5`,
+      [orgId],
     );
 
     // Occupancy rate
@@ -72,7 +77,8 @@ exports.getSummary = async (req, res) => {
 
     // Kitchen status summary
     const kitchenStatusRows = await query(
-      `SELECT status, COUNT(*) AS count FROM kitchen_orders GROUP BY status`
+      `SELECT status, COUNT(*) AS count FROM kitchen_orders WHERE org_id = ? GROUP BY status`,
+      [orgId],
     );
     const kitchenStatus = kitchenStatusRows.reduce((acc, cur) => {
       acc[cur.status] = cur.count;
@@ -111,10 +117,11 @@ exports.getBookingTrend = async (req, res) => {
     const rows = await query(
       `SELECT DATE(check_in) AS day, COUNT(*) AS bookings
        FROM bookings
-       WHERE DATE(check_in) >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+       WHERE org_id = ?
+         AND DATE(check_in) >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
        GROUP BY DATE(check_in)
        ORDER BY DATE(check_in)`,
-      [`-${days} days`]
+      [req.orgId, Number(days) || 30]
     );
     res.json(rows);
   } catch (err) {
@@ -129,8 +136,10 @@ exports.getRevenueByCategory = async (req, res) => {
     const rows = await query(
       `SELECT r.category, IFNULL(SUM(b.price), 0) AS revenue
        FROM bookings b
-       LEFT JOIN rooms r ON r.id = b.room_id
-       GROUP BY r.category`
+       LEFT JOIN rooms r ON r.id = b.room_id AND r.org_id = b.org_id
+       WHERE b.org_id = ?
+       GROUP BY r.category`,
+      [req.orgId],
     );
     res.json(rows);
   } catch (err) {
@@ -146,12 +155,12 @@ exports.getTopMenuItems = async (req, res) => {
     const rows = await query(
       `SELECT mi.name, SUM(ko.quantity) AS sold
        FROM kitchen_orders ko
-       JOIN menu_items mi ON mi.id = ko.item_id
-       WHERE ko.status != 'Cancelled'
+       JOIN menu_items mi ON mi.id = ko.item_id AND mi.org_id = ko.org_id
+       WHERE ko.org_id = ? AND ko.status != 'Cancelled'
        GROUP BY mi.name
        ORDER BY sold DESC
        LIMIT ?`,
-      [limit]
+      [req.orgId, limit]
     );
     res.json(rows);
   } catch (err) {
@@ -164,7 +173,8 @@ exports.getTopMenuItems = async (req, res) => {
 exports.getKitchenStatus = async (req, res) => {
   try {
     const rows = await query(
-      `SELECT status, COUNT(*) AS count FROM kitchen_orders GROUP BY status`
+      `SELECT status, COUNT(*) AS count FROM kitchen_orders WHERE org_id = ? GROUP BY status`,
+      [req.orgId],
     );
     res.json(rows);
   } catch (err) {
@@ -176,8 +186,14 @@ exports.getKitchenStatus = async (req, res) => {
 // Occupancy rate endpoint
 exports.getOccupancyRate = async (req, res) => {
   try {
-    const total = await getSingle("SELECT COUNT(*) AS cnt FROM rooms");
-    const occupied = await getSingle("SELECT COUNT(*) AS cnt FROM rooms WHERE status = 'Occupied'");
+    const total = await getSingle(
+      "SELECT COUNT(*) AS cnt FROM rooms WHERE org_id = ?",
+      [req.orgId],
+    );
+    const occupied = await getSingle(
+      "SELECT COUNT(*) AS cnt FROM rooms WHERE status = 'Occupied' AND org_id = ?",
+      [req.orgId],
+    );
     const rate = total.cnt > 0 ? (occupied.cnt / total.cnt) * 100 : 0;
     res.json({ totalRooms: total.cnt, occupiedRooms: occupied.cnt, occupancyRate: Number(rate.toFixed(2)) });
   } catch (err) {

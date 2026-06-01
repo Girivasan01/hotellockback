@@ -3,7 +3,7 @@
  */
 
 // Hotel GST Number
-const HOTEL_GST_NUMBER = "33AMQPK7880E1ZP";
+const HOTEL_GST_NUMBER = "33AMQPK7880E2ZO";
 
 // Default GST rates
 const DEFAULT_GST_RATES = {
@@ -40,4 +40,3 @@ module.exports = {
   DEFAULT_GST_RATES,
   computeGST
 };
-

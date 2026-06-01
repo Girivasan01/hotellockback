@@ -31,6 +31,30 @@ const migrations = [
   // ── Discount support ──────────────
   `ALTER TABLE bookings ADD COLUMN discount DECIMAL(10,2) DEFAULT 0`,
   `ALTER TABLE billings ADD COLUMN discount DECIMAL(10,2) DEFAULT 0`,
+
+  // ── Multi-tenant org_id (matches studio_admin.enterprises.id) ──
+  `ALTER TABLE rooms ADD COLUMN org_id INT`,
+  `ALTER TABLE room_categories ADD COLUMN org_id INT`,
+  `ALTER TABLE customers ADD COLUMN org_id INT`,
+  `ALTER TABLE bookings ADD COLUMN org_id INT`,
+  `ALTER TABLE categories ADD COLUMN org_id INT`,
+  `ALTER TABLE menu_items ADD COLUMN org_id INT`,
+  `ALTER TABLE kitchen_orders ADD COLUMN org_id INT`,
+  `ALTER TABLE add_ons ADD COLUMN org_id INT`,
+  `ALTER TABLE billings ADD COLUMN org_id INT`,
+  `ALTER TABLE invoices ADD COLUMN org_id INT`,
+  `ALTER TABLE booking_addons ADD COLUMN org_id INT`,
+  `ALTER TABLE expenses ADD COLUMN org_id INT`,
+  `ALTER TABLE gst_settings ADD COLUMN org_id INT`,
+  `ALTER TABLE staff ADD COLUMN org_id INT`,
+  `ALTER TABLE users ADD COLUMN org_id INT`,
+  `ALTER TABLE restaurant_orders ADD COLUMN org_id INT`,
+
+  `CREATE INDEX idx_rooms_org ON rooms(org_id)`,
+  `CREATE INDEX idx_customers_org ON customers(org_id)`,
+  `CREATE INDEX idx_bookings_org ON bookings(org_id)`,
+  `CREATE INDEX idx_users_org ON users(org_id)`,
+  `CREATE INDEX idx_staff_org ON staff(org_id)`,
 ];
 
 async function columnExists(tableName, columnName) {
@@ -45,7 +69,20 @@ async function columnExists(tableName, columnName) {
   return Array.isArray(rows) && rows.length > 0;
 }
 
-async function runOne(sql) {
+async function indexExists(tableName, indexName) {
+  const sql = `SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1`;
+  const params = [
+    process.env.MYSQL_DATABASE || process.env.DB_DATABASE || "hotel_pos",
+    tableName,
+    indexName,
+  ];
+  const [rows] = await db.query(sql, params);
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+const verboseMigrations = process.env.MIGRATION_VERBOSE === "true";
+
+async function runOne(sql, stats) {
   try {
     const alterMatch = /ALTER TABLE\s+`?(\w+)`?\s+ADD COLUMN\s+`?(\w+)`?/i.exec(
       sql,
@@ -56,14 +93,34 @@ async function runOne(sql) {
       const columnName = alterMatch[2];
       const exists = await columnExists(tableName, columnName);
       if (exists) {
-        console.log(
-          `  ⏭️  Skipped (column exists): ${tableName}.${columnName}`,
-        );
+        stats.skipped += 1;
+        if (verboseMigrations) {
+          console.log(
+            `  ⏭️  Skipped (column exists): ${tableName}.${columnName}`,
+          );
+        }
+        return;
+      }
+    }
+
+    const indexMatch = /CREATE INDEX\s+(\w+)\s+ON\s+`?(\w+)`?/i.exec(sql);
+    if (indexMatch) {
+      const indexName = indexMatch[1];
+      const tableName = indexMatch[2];
+      const exists = await indexExists(tableName, indexName);
+      if (exists) {
+        stats.skipped += 1;
+        if (verboseMigrations) {
+          console.log(
+            `  ⏭️  Skipped (index exists): ${tableName}.${indexName}`,
+          );
+        }
         return;
       }
     }
 
     await db.query(sql);
+    stats.applied += 1;
     console.log(`  ✅ Applied: ${sql.substring(0, 80)}...`);
   } catch (err) {
     const message = (err?.message || "").toLowerCase();
@@ -72,9 +129,12 @@ async function runOne(sql) {
       message.includes("already exists") ||
       message.includes("duplicate key")
     ) {
-      console.log(
-        `  ⏭️  Skipped (already applied/exists): ${sql.substring(0, 80)}...`,
-      );
+      stats.skipped += 1;
+      if (verboseMigrations) {
+        console.log(
+          `  ⏭️  Skipped (already applied/exists): ${sql.substring(0, 80)}...`,
+        );
+      }
       return;
     }
 
@@ -85,13 +145,19 @@ async function runOne(sql) {
 }
 
 async function runMigrations() {
-  console.log(`🔄 Running ${migrations.length} migration(s)...`);
+  const stats = { applied: 0, skipped: 0 };
 
   for (const sql of migrations) {
-    await runOne(sql);
+    await runOne(sql, stats);
   }
 
-  console.log("✅ All migrations complete.");
+  if (stats.applied > 0) {
+    console.log(
+      `✅ Migrations: ${stats.applied} applied, ${stats.skipped} already up to date.`,
+    );
+  } else {
+    console.log("✅ Database schema up to date (no new migrations).");
+  }
 }
 
 module.exports = { runMigrations };

@@ -1,12 +1,15 @@
 const express = require("express");
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 const db = require("../db/database");
 const { requireAuth, requireAdmin } = require("../middleware/auth");
+const { requireOrg } = require("../middleware/org");
 
 const router = express.Router();
 
+router.use(requireAuth, requireAdmin, requireOrg);
+
 /* GET ALL STAFF */
-router.get("/", requireAuth, requireAdmin, async (req, res) => {
+router.get("/", async (req, res) => {
   try {
     const [rows] = await db.query(
       `
@@ -18,9 +21,11 @@ router.get("/", requireAuth, requireAdmin, async (req, res) => {
         s.created_at,
         u.email
       FROM staff s
-      LEFT JOIN users u ON u.staff_id = s.id AND u.role = 'staff'
+      LEFT JOIN users u ON u.staff_id = s.id AND u.role = 'staff' AND u.org_id = s.org_id
+      WHERE s.org_id = ?
       ORDER BY s.created_at DESC
       `,
+      [req.orgId],
     );
     res.json(rows);
   } catch (err) {
@@ -30,7 +35,7 @@ router.get("/", requireAuth, requireAdmin, async (req, res) => {
 });
 
 /* ADD STAFF (AUTO CREATE USER LOGIN) */
-router.post("/", requireAuth, requireAdmin, async (req, res) => {
+router.post("/", async (req, res) => {
   try {
     const { name, email, phone, password } = req.body;
 
@@ -70,23 +75,17 @@ router.post("/", requireAuth, requireAdmin, async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // Look up the admin's org so the new staff inherits it
-    const [adminRows] = await db.query(
-      "SELECT org_id, org_name FROM users WHERE id = ? LIMIT 1",
-      [req.user.id],
-    );
-    const org_id = adminRows[0]?.org_id ?? null;
-    const org_name = adminRows[0]?.org_name ?? null;
+    const org_id = req.orgId;
 
     const [staffResult] = await db.query(
-      `INSERT INTO staff (name, phone, status) VALUES (?, ?, 'active')`,
-      [nameTrimed, phone],
+      `INSERT INTO staff (name, phone, status, org_id) VALUES (?, ?, 'active', ?)`,
+      [nameTrimed, phone, org_id],
     );
     const staffId = staffResult.insertId;
 
     await db.query(
-      `INSERT INTO users (name, email, password, role, staff_id, org_id, org_name) VALUES (?, ?, ?, 'staff', ?, ?, ?)`,
-      [nameTrimed, emailTrimed, passwordHash, staffId, org_id, org_name],
+      `INSERT INTO users (name, email, password, role, staff_id, org_id) VALUES (?, ?, ?, 'staff', ?, ?)`,
+      [nameTrimed, emailTrimed, passwordHash, staffId, org_id],
     );
 
     res.status(201).json({
@@ -104,17 +103,18 @@ router.post("/", requireAuth, requireAdmin, async (req, res) => {
 });
 
 /* DELETE STAFF */
-router.delete("/:id", requireAuth, requireAdmin, async (req, res) => {
+router.delete("/:id", async (req, res) => {
   try {
     const staffId = req.params.id;
 
-    const [userDelete] = await db.query(
-      "DELETE FROM users WHERE staff_id = ?",
-      [staffId],
-    );
-    const [staffDelete] = await db.query("DELETE FROM staff WHERE id = ?", [
+    await db.query("DELETE FROM users WHERE staff_id = ? AND org_id = ?", [
       staffId,
+      req.orgId,
     ]);
+    const [staffDelete] = await db.query(
+      "DELETE FROM staff WHERE id = ? AND org_id = ?",
+      [staffId, req.orgId],
+    );
 
     if (staffDelete.affectedRows === 0) {
       return res.status(404).json({ message: "Staff not found" });

@@ -28,7 +28,7 @@ const getLocalDateTime = () => {
 };
 
 class CheckoutService {
-  async processCheckout(bookingId, checkoutData, user) {
+  async processCheckout(bookingId, checkoutData, user, orgId) {
     const {
       idempotency_key,
       gst_number,
@@ -38,7 +38,7 @@ class CheckoutService {
 
     const key = idempotency_key || uuidv4();
 
-    if (await dbService.idempotencyExists(key)) {
+    if (await dbService.idempotencyExists(key, orgId)) {
       return {
         success: false,
         error: "Duplicate checkout attempt blocked",
@@ -47,7 +47,7 @@ class CheckoutService {
     }
 
     try {
-      const booking = await dbService.getBookingWithDetails(bookingId);
+      const booking = await dbService.getBookingWithDetails(bookingId, orgId);
 
       if (!booking) throw new Error("Booking not found");
       if (booking.status === "Checked-out") {
@@ -108,30 +108,32 @@ class CheckoutService {
       const billingId = await dbService.transaction(async (tx) => {
         for (const addon of newAddOns) {
           await tx.run(
-            `INSERT INTO booking_addons (booking_id, name, price) VALUES (?, ?, ?)`,
+            `INSERT INTO booking_addons (booking_id, name, price, org_id) VALUES (?, ?, ?, ?)`,
             [
               booking.booking_id,
               addon.name || "Custom Add-on",
               Number(addon.price || 0),
+              orgId,
             ],
           );
         }
 
         await tx.run(
-          `UPDATE bookings SET status = 'Checked-out', check_out = COALESCE(check_out, ?) WHERE id = ?`,
-          [finalCheckoutTime, bookingId],
+          `UPDATE bookings SET status = 'Checked-out', check_out = COALESCE(check_out, ?) WHERE id = ? AND org_id = ?`,
+          [finalCheckoutTime, bookingId, orgId],
         );
 
-        await tx.run(`UPDATE rooms SET status = 'Available' WHERE id = ?`, [
-          booking.room_id,
-        ]);
+        await tx.run(
+          `UPDATE rooms SET status = 'Available' WHERE id = ? AND org_id = ?`,
+          [booking.room_id, orgId],
+        );
 
         const billingResult = await tx.run(
           `INSERT INTO billings (
             booking_id, idempotency_key, customer_id, room_id,
             check_in, check_out, advance_paid, discount, total_amount,
-            gst_number, billed_by_id, billed_by_name, billed_by_role
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            gst_number, billed_by_id, billed_by_name, billed_by_role, org_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             booking.booking_id,
             key,
@@ -146,6 +148,7 @@ class CheckoutService {
             user.id,
             user.name,
             user.role,
+            orgId,
           ],
         );
 
@@ -154,6 +157,7 @@ class CheckoutService {
           billingResult.lastID,
           booking,
           calculation,
+          orgId,
         );
 
         return billingResult.lastID;
@@ -186,7 +190,7 @@ class CheckoutService {
     }
   }
 
-  async _createLineItems(tx, billingId, booking, calculation) {
+  async _createLineItems(tx, billingId, booking, calculation, orgId) {
     const lines = [];
 
     lines.push({
@@ -259,8 +263,8 @@ class CheckoutService {
       await tx.run(
         `INSERT INTO invoices (
           billing_id, type, description, quantity,
-          unit_price, subtotal, gst_rate, total
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          unit_price, subtotal, gst_rate, total, org_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           line.billing_id,
           line.type,
@@ -270,6 +274,7 @@ class CheckoutService {
           line.subtotal,
           line.gst_rate,
           line.total,
+          orgId,
         ],
       );
     }

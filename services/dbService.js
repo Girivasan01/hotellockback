@@ -101,11 +101,11 @@ class DbService {
   /**
    * Check idempotency key
    */
-  async idempotencyExists(key, executor = this.db) {
+  async idempotencyExists(key, orgId, executor = this.db) {
     const row = await this.get(
-      "SELECT id FROM billings WHERE idempotency_key = ?",
-      [key],
-      executor
+      "SELECT id FROM billings WHERE idempotency_key = ? AND org_id = ?",
+      [key, orgId],
+      executor,
     );
     return !!row;
   }
@@ -113,15 +113,15 @@ class DbService {
   /**
    * Get booking with full details
    */
-  async getBookingWithDetails(bookingId, executor = this.db) {
+  async getBookingWithDetails(bookingId, orgId, executor = this.db) {
     const booking = await this.get(
       `SELECT b.*, c.name AS customer_name, r.room_number, r.category
        FROM bookings b
-       JOIN customers c ON b.customer_id = c.id
-       JOIN rooms r ON b.room_id = r.id
-       WHERE b.id = ?`,
-      [bookingId],
-      executor
+       JOIN customers c ON b.customer_id = c.id AND c.org_id = b.org_id
+       JOIN rooms r ON b.room_id = r.id AND r.org_id = b.org_id
+       WHERE b.id = ? AND b.org_id = ?`,
+      [bookingId, orgId],
+      executor,
     );
 
     if (!booking) return null;

@@ -10,15 +10,15 @@ class BillingService {
    * Get billing preview (NOT persisted)
    * Used for checkout modal and bill preview before finalization
    */
-  async getBillingPreview(bookingId) {
+  async getBillingPreview(bookingId, orgId) {
     const booking = await dbService.get(
       `SELECT b.*, c.name AS customer_name, c.contact, c.address,
               r.room_number, r.category, r.price_per_night
        FROM bookings b
-       JOIN customers c ON b.customer_id = c.id
-       JOIN rooms r ON b.room_id = r.id
-       WHERE b.booking_id = ?`,
-      [bookingId]
+       JOIN customers c ON b.customer_id = c.id AND c.org_id = b.org_id
+       JOIN rooms r ON b.room_id = r.id AND r.org_id = b.org_id
+       WHERE b.booking_id = ? AND b.org_id = ?`,
+      [bookingId, orgId],
     );
 
     if (!booking) {
@@ -100,11 +100,12 @@ class BillingService {
     limit = 50,
     search = "",
     includeDownloaded = false,
+    orgId,
   } = {}) {
     const offset = (page - 1) * limit;
 
-    const conditions = [];
-    const params = [];
+    const conditions = ["b.org_id = ?"];
+    const params = [orgId];
 
     if (!includeDownloaded) {
       conditions.push("COALESCE(b.is_downloaded, 0) = 0");
@@ -191,28 +192,31 @@ class BillingService {
   /**
    * Get billing details with full line items
    */
-  async getBillingDetails(billingId) {
-    return await invoiceService.getInvoiceData(billingId);
+  async getBillingDetails(billingId, orgId) {
+    return await invoiceService.getInvoiceData(billingId, orgId);
   }
 
   /**
    * Mark billing as downloaded + save GST number
    */
-  async markDownloaded(billingId, gstNumber) {
+  async markDownloaded(billingId, gstNumber, orgId) {
     await dbService.run(
-      "UPDATE billings SET is_downloaded = 1, gst_number = ? WHERE id = ?",
-      [gstNumber, billingId]
+      "UPDATE billings SET is_downloaded = 1, gst_number = ? WHERE id = ? AND org_id = ?",
+      [gstNumber, billingId, orgId],
     );
   }
 
   /**
    * Get profit/loss summary
    */
-  async getProfitSummary({ startDate, endDate } = {}) {
-    const whereClause = endDate
-      ? "WHERE DATE(b.created_at) BETWEEN ? AND ?"
-      : "";
-    const params = endDate ? [startDate, endDate] : [];
+  async getProfitSummary({ startDate, endDate, orgId } = {}) {
+    const conditions = ["b.org_id = ?"];
+    const params = [orgId];
+    if (endDate) {
+      conditions.push("DATE(b.created_at) BETWEEN ? AND ?");
+      params.push(startDate, endDate);
+    }
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
 
     const profit = await dbService.get(
       `

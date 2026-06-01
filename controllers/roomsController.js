@@ -13,16 +13,17 @@ const safeParse = (value) => {
 
 const normalizeCategoryName = (value) => String(value || "").trim();
 
-async function getRoomCategoryByName(name) {
+async function getRoomCategoryByName(name, orgId) {
   const [rows] = await db.query(
-    "SELECT id, name FROM room_categories WHERE name = ? LIMIT 1",
-    [name]
+    "SELECT id, name FROM room_categories WHERE name = ? AND org_id = ? LIMIT 1",
+    [name, orgId],
   );
   return rows[0] || null;
 }
 
 exports.getRoomCategories = async (req, res) => {
   try {
+    const orgId = req.orgId;
     const [rows] = await db.query(
       `
       SELECT
@@ -32,10 +33,12 @@ exports.getRoomCategories = async (req, res) => {
         rc.updated_at,
         COUNT(r.id) AS room_count
       FROM room_categories rc
-      LEFT JOIN rooms r ON r.category = rc.name
+      LEFT JOIN rooms r ON r.category = rc.name AND r.org_id = rc.org_id
+      WHERE rc.org_id = ?
       GROUP BY rc.id, rc.name, rc.created_at, rc.updated_at
       ORDER BY rc.name
-      `
+      `,
+      [orgId],
     );
 
     res.json(rows);
@@ -46,20 +49,21 @@ exports.getRoomCategories = async (req, res) => {
 
 exports.createRoomCategory = async (req, res) => {
   const name = normalizeCategoryName(req.body?.name);
+  const orgId = req.orgId;
 
   if (!name) {
     return res.status(400).json({ error: "Category name is required" });
   }
 
   try {
-    const existing = await getRoomCategoryByName(name);
+    const existing = await getRoomCategoryByName(name, orgId);
     if (existing) {
       return res.status(409).json({ error: "Category already exists" });
     }
 
     const result = await db.run(
-      "INSERT INTO room_categories (name) VALUES (?)",
-      [name]
+      "INSERT INTO room_categories (name, org_id) VALUES (?, ?)",
+      [name, orgId],
     );
 
     const [rows] = await db.query(
@@ -192,10 +196,12 @@ exports.getAllRooms = (req, res) => {
     FROM rooms r
     LEFT JOIN bookings b 
       ON b.room_id = r.id 
+      AND b.org_id = r.org_id
       AND b.status IN ('Confirmed','Checked-in')
+    WHERE r.org_id = ?
     GROUP BY r.id
     `,
-    [],
+    [req.orgId],
     (err, rows) => {
       if (err) return res.status(500).json({ error: err.message });
 
@@ -214,7 +220,7 @@ exports.getAllRooms = (req, res) => {
 
 exports.getRoomById = (req, res) => {
   const { id } = req.params;
-  db.get("SELECT * FROM rooms WHERE id = ?", [id], (err, row) => {
+  db.get("SELECT * FROM rooms WHERE id = ? AND org_id = ?", [id, req.orgId], (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
     if (!row) return res.status(404).json({ error: "Room not found" });
     res.json({ ...row, amenities: safeParse(row.amenities), add_ons: safeParse(row.add_ons) });
@@ -239,14 +245,14 @@ exports.createRoom = async (req, res) => {
   }
 
   try {
-    const categoryRow = await getRoomCategoryByName(normalizedCategory);
+    const categoryRow = await getRoomCategoryByName(normalizedCategory, req.orgId);
     if (!categoryRow) {
       return res.status(400).json({ error: "Invalid room category" });
     }
 
     const result = await db.run(
-      `INSERT INTO rooms (room_number, category, status, price_per_night, amenities, add_ons, capacity)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO rooms (room_number, category, status, price_per_night, amenities, add_ons, capacity, org_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         room_number,
         normalizedCategory,
@@ -255,7 +261,8 @@ exports.createRoom = async (req, res) => {
         JSON.stringify(amenities || {}),
         JSON.stringify(add_ons || {}),
         capacity || 2,
-      ]
+        req.orgId,
+      ],
     );
 
     res.json({ id: result.lastID });
@@ -283,13 +290,13 @@ exports.updateRoom = async (req, res) => {
   }
 
   try {
-    const categoryRow = await getRoomCategoryByName(normalizedCategory);
+    const categoryRow = await getRoomCategoryByName(normalizedCategory, req.orgId);
     if (!categoryRow) {
       return res.status(400).json({ error: "Invalid room category" });
     }
 
     const result = await db.run(
-      `UPDATE rooms SET room_number=?, category=?, status=?, price_per_night=?, amenities=?, add_ons=?, capacity=? WHERE id=?`,
+      `UPDATE rooms SET room_number=?, category=?, status=?, price_per_night=?, amenities=?, add_ons=?, capacity=? WHERE id=? AND org_id=?`,
       [
         room_number,
         normalizedCategory,
@@ -299,7 +306,8 @@ exports.updateRoom = async (req, res) => {
         JSON.stringify(add_ons || {}),
         capacity || 2,
         id,
-      ]
+        req.orgId,
+      ],
     );
 
     if (result.changes === 0) {
@@ -327,17 +335,18 @@ exports.getActiveRooms = (req, res) => {
     JOIN customers c ON b.customer_id = c.id
 
     WHERE b.status IN ('Confirmed', 'Checked-in')
+      AND b.org_id = ?
     ORDER BY b.id DESC
   `;
 
-  db.all(query, [], (err, rows) => {
+  db.all(query, [req.orgId], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
 };
 exports.deleteRoom = (req, res) => {
   const { id } = req.params;
-  db.run("DELETE FROM rooms WHERE id=?", [id], function(err) {
+  db.run("DELETE FROM rooms WHERE id=? AND org_id=?", [id, req.orgId], function(err) {
     if (err) return res.status(500).json({ error: err.message });
     if (this.changes === 0) return res.status(404).json({ error: "Room not found" });
     res.json({ deleted: true });

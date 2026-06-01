@@ -3,7 +3,6 @@ const router = express.Router();
 const db = require("../db/database");
 const multer = require("multer");
 
-// ================= MULTER CONFIG =================
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, "uploads/"),
   filename: (req, file, cb) => cb(null, Date.now() + "-" + file.originalname),
@@ -11,21 +10,32 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-// ================= GET ALL CUSTOMERS =================
 router.get("/", async (req, res) => {
   try {
-    const [rows] = await db.query("SELECT * FROM customers ORDER BY id DESC");
+    const [rows] = await db.query(
+      "SELECT * FROM customers WHERE org_id = ? ORDER BY id DESC",
+      [req.orgId],
+    );
     res.json(rows);
   } catch (err) {
     console.error("GET CUSTOMERS ERROR:", err);
+    const msg = (err.message || "").toLowerCase();
+    if (msg.includes("unknown column") && msg.includes("org_id")) {
+      return res.status(500).json({
+        error:
+          "customers.org_id column missing. Restart Hotel POS backend to run migrations.",
+      });
+    }
     res.status(500).json({ error: err.message });
   }
 });
 
-// ================= GET CUSTOMER BY ID =================
 router.get("/:id", async (req, res) => {
   try {
-    const [rows] = await db.query("SELECT * FROM customers WHERE id = ?", [req.params.id]);
+    const [rows] = await db.query(
+      "SELECT * FROM customers WHERE id = ? AND org_id = ?",
+      [req.params.id, req.orgId],
+    );
     if (!rows[0]) return res.status(404).json({ error: "Customer not found" });
     res.json(rows[0]);
   } catch (err) {
@@ -34,7 +44,6 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// ================= CREATE CUSTOMER =================
 router.post("/", upload.single("document"), async (req, res) => {
   const {
     name,
@@ -48,7 +57,9 @@ router.post("/", upload.single("document"), async (req, res) => {
   } = req.body;
 
   if (!name || !contact) {
-    return res.status(400).json({ message: "Name and mobile number are mandatory" });
+    return res
+      .status(400)
+      .json({ message: "Name and mobile number are mandatory" });
   }
 
   const document = req.file ? `uploads/${req.file.filename}` : null;
@@ -56,8 +67,8 @@ router.post("/", upload.single("document"), async (req, res) => {
   try {
     const [result] = await db.query(
       `INSERT INTO customers
-       (name, contact, email, id_type, id_number, address, vehicle_no, dob, document)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (name, contact, email, id_type, id_number, address, vehicle_no, dob, document, org_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         name,
         contact,
@@ -68,7 +79,8 @@ router.post("/", upload.single("document"), async (req, res) => {
         vehicle_no || null,
         dob || null,
         document,
-      ]
+        req.orgId,
+      ],
     );
 
     res.json({
@@ -90,7 +102,6 @@ router.post("/", upload.single("document"), async (req, res) => {
   }
 });
 
-// ================= UPDATE CUSTOMER =================
 router.put("/:id", upload.single("document"), async (req, res) => {
   const {
     name,
@@ -104,7 +115,9 @@ router.put("/:id", upload.single("document"), async (req, res) => {
   } = req.body;
 
   if (!name || !contact) {
-    return res.status(400).json({ message: "Name and mobile number are mandatory" });
+    return res
+      .status(400)
+      .json({ message: "Name and mobile number are mandatory" });
   }
 
   const document = req.file ? `uploads/${req.file.filename}` : null;
@@ -136,8 +149,8 @@ router.put("/:id", upload.single("document"), async (req, res) => {
     params.push(document);
   }
 
-  query += " WHERE id = ?";
-  params.push(req.params.id);
+  query += " WHERE id = ? AND org_id = ?";
+  params.push(req.params.id, req.orgId);
 
   try {
     const [result] = await db.query(query, params);
@@ -151,11 +164,14 @@ router.put("/:id", upload.single("document"), async (req, res) => {
   }
 });
 
-// ================= DELETE CUSTOMER =================
 router.delete("/:id", async (req, res) => {
   try {
-    const [result] = await db.query("DELETE FROM customers WHERE id = ?", [req.params.id]);
-    if (result.affectedRows === 0) return res.status(404).json({ error: "Customer not found" });
+    const [result] = await db.query(
+      "DELETE FROM customers WHERE id = ? AND org_id = ?",
+      [req.params.id, req.orgId],
+    );
+    if (result.affectedRows === 0)
+      return res.status(404).json({ error: "Customer not found" });
     res.json({ message: "Customer deleted" });
   } catch (err) {
     console.error("DELETE CUSTOMER ERROR:", err);

@@ -24,12 +24,13 @@ exports.getRestaurantOrders = (req, res) => {
       ro.created_at
       
     FROM restaurant_orders ro
-    JOIN menu_items mi ON ro.item_id = mi.id
+    JOIN menu_items mi ON ro.item_id = mi.id AND mi.org_id = ro.org_id
     
     WHERE ro.status != 'Settled'
+      AND ro.org_id = ?
   `;
 
-  const params = [];
+  const params = [req.orgId];
 
   if (table_number) {
     query += ` AND ro.table_number = ?`;
@@ -67,9 +68,9 @@ exports.createRestaurantOrder = (req, res) => {
 
   db.run(
     `INSERT INTO restaurant_orders 
-     (table_number, item_id, quantity, status, created_at)
-     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-    [table_number, item_id, quantity, "Pending"],
+     (table_number, item_id, quantity, status, org_id, created_at)
+     VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+    [table_number, item_id, quantity, "Pending", req.orgId],
     function (err) {
       if (err) {
         console.error(err);
@@ -100,8 +101,8 @@ exports.updateRestaurantOrderStatus = (req, res) => {
   }
 
   db.run(
-    "UPDATE restaurant_orders SET status = ? WHERE id = ?",
-    [status, orderId],
+    "UPDATE restaurant_orders SET status = ? WHERE id = ? AND org_id = ?",
+    [status, orderId, req.orgId],
     function (err) {
       if (err) {
         console.error(err);
@@ -122,8 +123,6 @@ exports.updateRestaurantOrderStatus = (req, res) => {
  * Marks all served orders for that table as "Settled"
  */
 exports.generateRestaurantBill = (req, res) => {
-  console.log("Generate bill payload:", req.body);
-
   const { table_number } = req.body;
 
   if (!table_number) {
@@ -133,8 +132,8 @@ exports.generateRestaurantBill = (req, res) => {
   db.run(
     `UPDATE restaurant_orders
      SET status = 'Settled'
-     WHERE table_number = ? AND status = 'Served'`,
-    [table_number],
+     WHERE table_number = ? AND org_id = ? AND status = 'Served'`,
+    [table_number, req.orgId],
     function (err) {
       if (err) {
         console.error("Generate bill DB error:", err);
@@ -158,8 +157,8 @@ exports.deleteRestaurantOrder = (req, res) => {
 
   db.run(
     `DELETE FROM restaurant_orders 
-     WHERE id = ? AND status != 'Settled'`,
-    [orderId],
+     WHERE id = ? AND org_id = ? AND status != 'Settled'`,
+    [orderId, req.orgId],
     function (err) {
       if (err) {
         console.error(err);
@@ -181,8 +180,8 @@ exports.deleteRestaurantOrdersByTable = (req, res) => {
 
   db.run(
     `DELETE FROM restaurant_orders 
-     WHERE table_number = ? AND status != 'Settled'`,
-    [table_number],
+     WHERE table_number = ? AND org_id = ? AND status != 'Settled'`,
+    [table_number, req.orgId],
     function (err) {
       if (err) {
         console.error(err);
@@ -213,18 +212,19 @@ exports.getOrdersByTable = (req, res) => {
       ro.table_number,
       COUNT(*) as order_count,
       SUM(mi.price * ro.quantity) as total_amount,
-      GROUP_CONCAT(mi.name || ' x' || ro.quantity) as items
+      GROUP_CONCAT(CONCAT(mi.name, ' x', ro.quantity) SEPARATOR ', ') as items
       
     FROM restaurant_orders ro
-    JOIN menu_items mi ON ro.item_id = mi.id
+    JOIN menu_items mi ON ro.item_id = mi.id AND mi.org_id = ro.org_id AND mi.org_id = ro.org_id
     
     WHERE ro.status = 'Served'
+      AND ro.org_id = ?
     
     GROUP BY ro.table_number
     ORDER BY ro.table_number
   `;
 
-  db.all(query, [], (err, rows) => {
+  db.all(query, [req.orgId], (err, rows) => {
     if (err) {
       console.error(err);
       return res.status(500).json({ error: "Failed to fetch orders by table" });

@@ -19,11 +19,12 @@ const billingService = require('../services/billingService');
 router.get("/", async (req, res) => {
   try {
     const { page = 1, limit = 50, search, includeDownloaded } = req.query;
-    const result = await billingService.getBillings({ 
-      page: parseInt(page), 
-      limit: parseInt(limit), 
-      search: search || '',
+    const result = await billingService.getBillings({
+      page: parseInt(page),
+      limit: parseInt(limit),
+      search: search || "",
       includeDownloaded: String(includeDownloaded).toLowerCase() === "true",
+      orgId: req.orgId,
     });
     res.json(result);
   } catch (error) {
@@ -42,7 +43,7 @@ router.get("/preview/:bookingId", async (req, res) => {
   const { bookingId } = req.params;
   
   try {
-    const preview = await billingService.getBillingPreview(bookingId);
+    const preview = await billingService.getBillingPreview(bookingId, req.orgId);
     res.json(preview);
   } catch (error) {
     console.error("❌ BILLING PREVIEW FAILED:", error);
@@ -62,7 +63,7 @@ router.get("/:id", async (req, res) => {
   
   try {
     const billingService = require('../services/billingService');
-    const bill = await billingService.getBillingDetails(billId);
+    const bill = await billingService.getBillingDetails(billId, req.orgId);
     res.json(bill);
   } catch (error) {
     console.error("❌ GET BILLING DETAILS FAILED:", error);
@@ -81,12 +82,14 @@ router.delete("/:id", async (req, res) => {
   const billId = req.params.id;
 
   try {
-    const [result] = await db.query("DELETE FROM billings WHERE id = ?", [billId]);
+    const [result] = await db.query(
+      "DELETE FROM billings WHERE id = ? AND org_id = ?",
+      [billId, req.orgId],
+    );
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: "Bill not found" });
     }
 
-    console.log("✅ BILL DELETED:", billId);
     res.json({ message: "Bill deleted successfully" });
   } catch (err) {
     console.error("❌ DELETE BILL FAILED:", err);
@@ -110,8 +113,8 @@ router.patch("/:id/downloaded", async (req, res) => {
     params.push(gst_number);
   }
 
-  params.push(billId);
-  const sql = `UPDATE billings SET ${updates.join(", ")} WHERE id = ?`;
+  params.push(billId, req.orgId);
+  const sql = `UPDATE billings SET ${updates.join(", ")} WHERE id = ? AND org_id = ?`;
 
   try {
     const [result] = await db.query(sql, params);
@@ -120,10 +123,6 @@ router.patch("/:id/downloaded", async (req, res) => {
       return res.status(404).json({ error: "Bill not found" });
     }
 
-    console.log("✅ BILL MARKED DOWNLOADED:", billId);
-    if (gst_number) {
-      console.log("✅ GST NUMBER SAVED:", gst_number);
-    }
     res.json({ message: "Bill marked as downloaded" });
   } catch (err) {
     console.error("❌ MARK DOWNLOADED FAILED:", err);
@@ -133,8 +132,8 @@ router.patch("/:id/downloaded", async (req, res) => {
 
 router.get("/export/csv", async (req, res) => {
   const { startDate, endDate } = req.query;
-  const where = [];
-  const params = [];
+  const where = ["b.org_id = ?"];
+  const params = [req.orgId];
 
   if (startDate && endDate) {
     where.push("DATE(b.created_at) BETWEEN ? AND ?");

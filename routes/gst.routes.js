@@ -1,14 +1,13 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db/database");
-const { requireAuth } = require("../middleware/auth");
 
-// ===============================
-// GET GST SETTINGS
-// ===============================
-router.get("/", requireAuth, async (req, res) => {
+router.get("/", async (req, res) => {
   try {
-    const [rows] = await db.query("SELECT * FROM gst_settings");
+    const [rows] = await db.query(
+      "SELECT * FROM gst_settings WHERE org_id = ?",
+      [req.orgId],
+    );
     res.json(rows);
   } catch (err) {
     console.error("GET GST ERROR:", err);
@@ -16,10 +15,7 @@ router.get("/", requireAuth, async (req, res) => {
   }
 });
 
-// ===============================
-// UPDATE GST SETTINGS
-// ===============================
-router.put("/", requireAuth, async (req, res) => {
+router.put("/", async (req, res) => {
   const settings = req.body;
 
   if (!Array.isArray(settings)) {
@@ -29,15 +25,14 @@ router.put("/", requireAuth, async (req, res) => {
   const query = `
     UPDATE gst_settings
     SET gst_rate = ?, is_enabled = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE category = ?
+    WHERE category = ? AND org_id = ?
   `;
 
   try {
     for (const s of settings) {
       const rate = Number(s.gst_rate) || 0;
       const enabled = s.is_enabled ? 1 : 0;
-      const [result] = await db.query(query, [rate, enabled, s.category]);
-      console.log(`GST updated: ${s.category} → rows affected: ${result.affectedRows}`);
+      await db.query(query, [rate, enabled, s.category, req.orgId]);
     }
     res.json({ message: "GST settings updated successfully" });
   } catch (err) {

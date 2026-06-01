@@ -2,14 +2,20 @@ const db = require("../db/database");
 
 // ================= MENU ITEMS =================
 exports.getMenuItems = (req, res) => {
-  db.all("SELECT * FROM menu_items ORDER BY category, name", [], (err, rows) => {
+  db.all(
+    "SELECT * FROM menu_items WHERE org_id = ? ORDER BY category, name",
+    [req.orgId],
+    (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
 };
 
 exports.getMenuItemById = (req, res) => {
-  db.get("SELECT * FROM menu_items WHERE id = ?", [req.params.id], (err, row) => {
+  db.get(
+    "SELECT * FROM menu_items WHERE id = ? AND org_id = ?",
+    [req.params.id, req.orgId],
+    (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(row);
   });
@@ -18,8 +24,8 @@ exports.getMenuItemById = (req, res) => {
 exports.createMenuItem = (req, res) => {
   const { name, category, price, stock, status } = req.body;
   db.run(
-    "INSERT INTO menu_items (name, category, price, stock, status) VALUES (?, ?, ?, ?, ?)",
-    [name, category, price, stock, status || "Pending"],
+    "INSERT INTO menu_items (name, category, price, stock, status, org_id) VALUES (?, ?, ?, ?, ?, ?)",
+    [name, category, price, stock, status || "Pending", req.orgId],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ id: this.lastID, message: "Menu item created" });
@@ -30,8 +36,8 @@ exports.createMenuItem = (req, res) => {
 exports.updateMenuItem = (req, res) => {
   const { name, category, price, stock, status } = req.body;
   db.run(
-    "UPDATE menu_items SET name=?, category=?, price=?, stock=?, status=? WHERE id=?",
-    [name, category, price, stock, status, req.params.id],
+    "UPDATE menu_items SET name=?, category=?, price=?, stock=?, status=? WHERE id=? AND org_id=?",
+    [name, category, price, stock, status, req.params.id, req.orgId],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ message: "Menu item updated" });
@@ -40,7 +46,10 @@ exports.updateMenuItem = (req, res) => {
 };
 
 exports.deleteMenuItem = (req, res) => {
-  db.run("DELETE FROM menu_items WHERE id=?", [req.params.id], function (err) {
+  db.run(
+    "DELETE FROM menu_items WHERE id=? AND org_id=?",
+    [req.params.id, req.orgId],
+    function (err) {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ message: "Menu item deleted" });
   });
@@ -48,7 +57,10 @@ exports.deleteMenuItem = (req, res) => {
 
 // ================= CATEGORIES =================
 exports.getCategories = (req, res) => {
-  db.all("SELECT * FROM categories ORDER BY name", [], (err, rows) => {
+  db.all(
+    "SELECT * FROM categories WHERE org_id = ? ORDER BY name",
+    [req.orgId],
+    (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
@@ -56,7 +68,10 @@ exports.getCategories = (req, res) => {
 
 exports.createCategory = (req, res) => {
   const { name } = req.body;
-  db.run("INSERT INTO categories (name) VALUES (?)", [name], function (err) {
+  db.run(
+    "INSERT INTO categories (name, org_id) VALUES (?, ?)",
+    [name, req.orgId],
+    function (err) {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ id: this.lastID, message: "Category created" });
   });
@@ -64,7 +79,10 @@ exports.createCategory = (req, res) => {
 
 exports.deleteCategory = (req, res) => {
   const id = req.params.id;
-  db.run("DELETE FROM categories WHERE id=?", [id], function(err) {
+  db.run(
+    "DELETE FROM categories WHERE id=? AND org_id=?",
+    [id, req.orgId],
+    function (err) {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ message: "Category deleted" });
   });
@@ -114,9 +132,10 @@ exports.getKitchenOrders = (req, res) => {
     JOIN menu_items mi ON ko.item_id = mi.id
 
     WHERE ko.status != 'Settled'
+      AND ko.org_id = ?
   `;
 
-  const params = [];
+  const params = [req.orgId];
 
   if (booking_id) {
     // ✅ For checkout: only include 'Served' orders
@@ -156,8 +175,8 @@ exports.createKitchenOrder = (req, res) => {
   // If booking_id is provided, get the room_id from the booking
   if (booking_id && !room_id) {
     db.get(
-      "SELECT room_id FROM bookings WHERE booking_id = ?",
-      [booking_id],
+      "SELECT room_id FROM bookings WHERE booking_id = ? AND org_id = ?",
+      [booking_id, req.orgId],
       (err, booking) => {
         if (err) {
           console.error(err);
@@ -166,19 +185,25 @@ exports.createKitchenOrder = (req, res) => {
         if (!booking) {
           return res.status(404).json({ error: "Booking not found" });
         }
-        
-        // Create order with the found room_id
-        createOrder(booking.room_id, booking_id, item_id, quantity, res);
-      }
+
+        createOrder(
+          booking.room_id,
+          booking_id,
+          item_id,
+          quantity,
+          req.orgId,
+          res,
+        );
+      },
     );
   } else if (room_id) {
     db.get(
       `SELECT booking_id
        FROM bookings
-       WHERE room_id = ? AND status IN ('Confirmed','Checked-in')
+       WHERE room_id = ? AND org_id = ? AND status IN ('Confirmed','Checked-in')
        ORDER BY id DESC
        LIMIT 1`,
-      [room_id],
+      [room_id, req.orgId],
       (err, booking) => {
         if (err) {
           console.error(err);
@@ -188,8 +213,15 @@ exports.createKitchenOrder = (req, res) => {
           return res.status(400).json({ error: "Active booking not found for room" });
         }
 
-        createOrder(room_id, booking.booking_id, item_id, quantity, res);
-      }
+        createOrder(
+          room_id,
+          booking.booking_id,
+          item_id,
+          quantity,
+          req.orgId,
+          res,
+        );
+      },
     );
   } else {
     return res.status(400).json({ 
@@ -199,12 +231,12 @@ exports.createKitchenOrder = (req, res) => {
 };
 
 // Helper function to create the order
-function createOrder(room_id, booking_id, item_id, quantity, res) {
+function createOrder(room_id, booking_id, item_id, quantity, orgId, res) {
   db.run(
     `INSERT INTO kitchen_orders 
-     (room_id, booking_id, item_id, quantity, status, created_at)
-     VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-    [room_id, booking_id, item_id, quantity, "Pending"],
+     (room_id, booking_id, item_id, quantity, status, org_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+    [room_id, booking_id, item_id, quantity, "Pending", orgId],
     function (err) {
       if (err) {
         console.error(err);
@@ -234,8 +266,8 @@ exports.updateKitchenOrderStatus = (req, res) => {
   }
 
   db.run(
-    "UPDATE kitchen_orders SET status = ? WHERE id = ?",
-    [status, orderId],
+    "UPDATE kitchen_orders SET status = ? WHERE id = ? AND org_id = ?",
+    [status, orderId, req.orgId],
     function (err) {
       if (err) {
         console.error(err);
@@ -257,8 +289,6 @@ exports.updateKitchenOrderStatus = (req, res) => {
 exports.generateKitchenBill = (req, res) => {
   const { booking_id } = req.body;
 
-  console.log("Generate kitchen bill payload:", req.body);
-
   // ✅ Strict validation
   if (!booking_id) {
     return res.status(400).json({
@@ -272,9 +302,10 @@ exports.generateKitchenBill = (req, res) => {
     UPDATE kitchen_orders
     SET status = 'Settled'
     WHERE booking_id = ?
+      AND org_id = ?
       AND status = 'Served'
     `,
-    [booking_id],
+    [booking_id, req.orgId],
     function (err) {
       if (err) {
         console.error("Generate bill DB error:", err);
@@ -305,8 +336,8 @@ exports.deleteKitchenOrder = (req, res) => {
 
   db.run(
     `DELETE FROM kitchen_orders 
-     WHERE id = ? AND status != 'Settled'`,
-    [orderId],
+     WHERE id = ? AND org_id = ? AND status != 'Settled'`,
+    [orderId, req.orgId],
     function (err) {
       if (err) {
         console.error(err);
@@ -329,8 +360,8 @@ exports.deleteKitchenOrdersByBooking = (req, res) => {
 
   db.run(
     `DELETE FROM kitchen_orders 
-     WHERE booking_id = ? AND status != 'Settled'`,
-    [booking_id],
+     WHERE booking_id = ? AND org_id = ? AND status != 'Settled'`,
+    [booking_id, req.orgId],
     function (err) {
       if (err) {
         console.error(err);
@@ -362,21 +393,22 @@ exports.getOrdersByBooking = (req, res) => {
       c.name AS customer_name,
       COUNT(ko.id) as order_count,
       SUM(mi.price * ko.quantity) as total_amount,
-      GROUP_CONCAT(mi.name || ' x' || ko.quantity) as items
+      GROUP_CONCAT(CONCAT(mi.name, ' x', ko.quantity) SEPARATOR ', ') as items
       
     FROM kitchen_orders ko
-    JOIN rooms r ON ko.room_id = r.id
-    LEFT JOIN bookings b ON ko.booking_id = b.booking_id
-    LEFT JOIN customers c ON b.customer_id = c.id
-    JOIN menu_items mi ON ko.item_id = mi.id
+    JOIN rooms r ON ko.room_id = r.id AND r.org_id = ko.org_id
+    LEFT JOIN bookings b ON ko.booking_id = b.booking_id AND b.org_id = ko.org_id
+    LEFT JOIN customers c ON b.customer_id = c.id AND c.org_id = ko.org_id
+    JOIN menu_items mi ON ko.item_id = mi.id AND mi.org_id = ko.org_id
     
     WHERE ko.status = 'Served'
+      AND ko.org_id = ?
     
     GROUP BY ko.booking_id
     ORDER BY ko.booking_id
   `;
 
-  db.all(query, [], (err, rows) => {
+  db.all(query, [req.orgId], (err, rows) => {
     if (err) {
       console.error(err);
       return res.status(500).json({ error: "Failed to fetch orders by booking" });

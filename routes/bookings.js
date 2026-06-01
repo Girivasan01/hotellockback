@@ -46,8 +46,8 @@ const dtLessThan = (a, b) => {
 router.get("/debug/room/:roomId", requireAuth, async (req, res) => {
   try {
     const [rows] = await db.query(
-      "SELECT id, room_number, category, status, price_per_night, capacity FROM rooms WHERE id = ?",
-      [req.params.roomId],
+      "SELECT id, room_number, category, status, price_per_night, capacity FROM rooms WHERE id = ? AND org_id = ?",
+      [req.params.roomId, req.orgId],
     );
     const room = rows[0];
     res.json({
@@ -78,9 +78,10 @@ router.get("/calendar", requireAuth, async (req, res) => {
       JOIN rooms r ON b.room_id = r.id
       LEFT JOIN customers c ON b.customer_id = c.id
       WHERE b.status IN ('Confirmed', 'Checked-in')
+        AND b.org_id = ?
       ORDER BY b.check_in ASC
     `;
-    const [rows] = await db.query(query);
+    const [rows] = await db.query(query, [req.orgId]);
     // Return raw DB strings — no Date() construction, no serialisation shift
     res.json(rows);
   } catch (err) {
@@ -102,9 +103,10 @@ router.get("/", requireAuth, async (req, res) => {
       FROM bookings b
       LEFT JOIN customers c ON b.customer_id = c.id
       LEFT JOIN rooms r ON b.room_id = r.id
+      WHERE b.org_id = ?
       ORDER BY b.id DESC
     `;
-    const [rows] = await db.query(query);
+    const [rows] = await db.query(query, [req.orgId]);
     res.json(rows);
   } catch (err) {
     console.error("Get bookings error:", err);
@@ -178,8 +180,8 @@ router.post("/", requireAuth, async (req, res) => {
 
     // ── Validate room exists ──────
     const [roomRows] = await db.query(
-      "SELECT id, capacity FROM rooms WHERE id = ?",
-      [room_id],
+      "SELECT id, capacity FROM rooms WHERE id = ? AND org_id = ?",
+      [room_id, req.orgId],
     );
     if (!roomRows[0]) {
       return res.status(400).json({ error: "Invalid room selected" });
@@ -190,10 +192,11 @@ router.post("/", requireAuth, async (req, res) => {
       `SELECT COUNT(*) AS conflictCount
        FROM bookings
        WHERE room_id = ?
+         AND org_id = ?
          AND status IN ('Confirmed', 'Checked-in')
          AND check_in  < ?
          AND (check_out IS NULL OR check_out > ?)`,
-      [room_id, checkOutStr || checkInStr, checkInStr],
+      [room_id, req.orgId, checkOutStr || checkInStr, checkInStr],
     );
 
     const conflictCount = availabilityRows[0]?.conflictCount || 0;
@@ -211,8 +214,8 @@ router.post("/", requireAuth, async (req, res) => {
       `INSERT INTO bookings
          (booking_id, customer_id, room_id, check_in, check_out, status,
           price, add_ons, people_count, advance_paid, discount,
-          created_by_id, created_by_name, created_by_role)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          created_by_id, created_by_name, created_by_role, org_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         booking_id,
         Number(customer_id),
@@ -228,6 +231,7 @@ router.post("/", requireAuth, async (req, res) => {
         created_by_id,
         created_by_name,
         created_by_role,
+        req.orgId,
       ],
     );
 
@@ -235,20 +239,22 @@ router.post("/", requireAuth, async (req, res) => {
     if (Array.isArray(add_ons) && add_ons.length > 0) {
       for (const addon of add_ons) {
         await db.query(
-          "INSERT INTO booking_addons (booking_id, name, price) VALUES (?, ?, ?)",
+          "INSERT INTO booking_addons (booking_id, name, price, org_id) VALUES (?, ?, ?, ?)",
           [
             booking_id,
             addon.description || addon.label || addon.name,
             Number(addon.amount || addon.price || 0),
+            req.orgId,
           ],
         );
       }
     }
 
     const roomStatus = bookingStatus === "Checked-in" ? "Occupied" : "Booked";
-    await db.query("UPDATE rooms SET status = ? WHERE id = ?", [
+    await db.query("UPDATE rooms SET status = ? WHERE id = ? AND org_id = ?", [
       roomStatus,
       room_id,
+      req.orgId,
     ]);
 
     res.status(201).json({
@@ -274,6 +280,7 @@ router.post("/:id/checkout", requireAuth, async (req, res) => {
       bookingId,
       req.body,
       req.user,
+      req.orgId,
     );
 
     if (!result.success) {
@@ -312,9 +319,9 @@ router.get("/:id", requireAuth, async (req, res) => {
       FROM bookings b
       LEFT JOIN customers c ON b.customer_id = c.id
       LEFT JOIN rooms r ON b.room_id = r.id
-      WHERE b.id = ?
+      WHERE b.id = ? AND b.org_id = ?
     `;
-    const [rows] = await db.query(query, [req.params.id]);
+    const [rows] = await db.query(query, [req.params.id, req.orgId]);
     const row = rows[0];
     if (!row) return res.status(404).json({ error: "Booking not found" });
     res.json(row);
@@ -343,8 +350,8 @@ router.put("/:id", requireAuth, async (req, res) => {
 
     // 1. Fetch current booking to see what changed
     const [currentRows] = await db.query(
-      "SELECT * FROM bookings WHERE id = ?",
-      [bookingId],
+      "SELECT * FROM bookings WHERE id = ? AND org_id = ?",
+      [bookingId, req.orgId],
     );
     const current = currentRows[0];
     if (!current) return res.status(404).json({ error: "Booking not found" });
@@ -405,26 +412,24 @@ router.put("/:id", requireAuth, async (req, res) => {
       check_in !== undefined ||
       check_out !== undefined
     ) {
-      console.log(
-        `🔍 Checking availability for Room ${effectiveRoomId} between ${effectiveCheckIn} and ${effectiveCheckOut}`,
-      );
       const [conflictRows] = await db.query(
         `SELECT COUNT(*) AS conflictCount
          FROM bookings
          WHERE room_id = ?
+           AND org_id = ?
            AND id != ?
            AND status IN ('Confirmed', 'Checked-in')
            AND check_in  < ?
            AND (check_out IS NULL OR check_out > ?)`,
         [
           effectiveRoomId,
+          req.orgId,
           bookingId,
           effectiveCheckOut || effectiveCheckIn,
           effectiveCheckIn,
         ],
       );
       if (conflictRows[0]?.conflictCount > 0) {
-        console.log("⚠️ Conflict detected!");
         return res
           .status(409)
           .json({ error: "Room is not available for the selected dates" });
@@ -432,29 +437,28 @@ router.put("/:id", requireAuth, async (req, res) => {
     }
 
     // 4. Update Bookings Table
-    params.push(bookingId);
-    (updateFields.join(", "),
-      "Params:",
+    params.push(bookingId, req.orgId);
+    await db.query(
+      `UPDATE bookings SET ${updateFields.join(", ")} WHERE id = ? AND org_id = ?`,
       params,
-      await db.query(
-        `UPDATE bookings SET ${updateFields.join(", ")} WHERE id = ?`,
-        params,
-      ));
+    );
 
     // 5. Sync booking_addons if changed
     if (add_ons) {
       const bIdStr = current.booking_id;
-      await db.query("DELETE FROM booking_addons WHERE booking_id = ?", [
-        bIdStr,
-      ]);
+      await db.query(
+        "DELETE FROM booking_addons WHERE booking_id = ? AND org_id = ?",
+        [bIdStr, req.orgId],
+      );
       if (Array.isArray(add_ons)) {
         for (const addon of add_ons) {
           await db.query(
-            "INSERT INTO booking_addons (booking_id, name, price) VALUES (?, ?, ?)",
+            "INSERT INTO booking_addons (booking_id, name, price, org_id) VALUES (?, ?, ?, ?)",
             [
               bIdStr,
               addon.description || addon.label || addon.name,
               Number(addon.amount || addon.price || 0),
+              req.orgId,
             ],
           );
         }
@@ -474,14 +478,15 @@ router.put("/:id", requireAuth, async (req, res) => {
 
     // If room changed, make old room available
     if (room_id && Number(room_id) !== current.room_id) {
-      await db.query("UPDATE rooms SET status = 'Available' WHERE id = ?", [
-        current.room_id,
-      ]);
+      await db.query(
+        "UPDATE rooms SET status = 'Available' WHERE id = ? AND org_id = ?",
+        [current.room_id, req.orgId],
+      );
     }
-    // Update current/new room status
-    await db.query("UPDATE rooms SET status = ? WHERE id = ?", [
+    await db.query("UPDATE rooms SET status = ? WHERE id = ? AND org_id = ?", [
       roomStatus,
       effectiveRoomId,
+      req.orgId,
     ]);
 
     res.json({ message: "Booking updated effectively" });
@@ -494,9 +499,10 @@ router.put("/:id", requireAuth, async (req, res) => {
 // DELETE - BOOKING
 router.delete("/:id", requireAuth, async (req, res) => {
   try {
-    const [result] = await db.query("DELETE FROM bookings WHERE id = ?", [
-      req.params.id,
-    ]);
+    const [result] = await db.query(
+      "DELETE FROM bookings WHERE id = ? AND org_id = ?",
+      [req.params.id, req.orgId],
+    );
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: "Booking not found" });
     }
