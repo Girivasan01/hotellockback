@@ -1,11 +1,11 @@
 const mysql = require("mysql2/promise");
 
-const host = process.env.MYSQL_HOST || process.env.DB_HOST || "localhost";
-const user = process.env.MYSQL_USER || process.env.DB_USER || "root";
+const host = process.env.MYSQL_HOST || process.env.DB_HOST || "srv786.hstgr.io";
+const user = process.env.MYSQL_USER || process.env.DB_USER || "u683444186_lock";
 const password =
-  process.env.MYSQL_PASSWORD || process.env.DB_PASSWORD || "root";
+  process.env.MYSQL_PASSWORD || process.env.DB_PASSWORD || "Lockhotel2026";
 const database =
-  process.env.MYSQL_DATABASE || process.env.DB_DATABASE || "hotel_pos";
+  process.env.MYSQL_DATABASE || process.env.DB_DATABASE || "u683444186_lock";
 const port = process.env.MYSQL_PORT
   ? Number(process.env.MYSQL_PORT)
   : process.env.DB_PORT
