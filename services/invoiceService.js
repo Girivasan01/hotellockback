@@ -2,9 +2,8 @@ const dbService = require("./dbService");
 const { HOTEL_GST_NUMBER } = require("../utils/billingUtils");
 const { calculateBillingTotals } = require("../utils/billingCalculator");
 
-/**
- * Invoice service for line items and PDF data preparation
- */
+
+  // Invoice service for line items and PDF data preparation
 class InvoiceService {
   /**
    * Get complete invoice data for billing (line items + totals)
@@ -41,6 +40,8 @@ class InvoiceService {
 
     return {
       ...billing,
+      check_in: billing.booking_check_in || billing.check_in,
+      check_out: billing.booking_check_out || billing.check_out,
       lines: groupedLines,
       totals,
       nights: totals.stay_days,
@@ -49,9 +50,6 @@ class InvoiceService {
     };
   }
 
-  /**
-   * Get summary for PDF generation
-   */
   async getInvoiceSummary(billingId) {
     const data = await this.getInvoiceData(billingId);
 

@@ -268,36 +268,14 @@ router.get("/subscription-status", requireAuth, async (req, res) => {
       });
     }
 
-    const studioDbName = process.env.STUDIO_DB_NAME;
-    if (!studioDbName) {
-      console.warn(
-        "Subscription status: STUDIO_DB_NAME not configured, skipping external subscription lookup.",
-      );
-      return res.json({
-        isActive: true,
-        warningLevel: null,
-        expiry_date: null,
-      });
-    }
+    const studioDbName = process.env.STUDIO_DB_NAME || "studio_admin";
 
-    let enterprise;
-    try {
-      const [rows] = await db.query(
-        `SELECT isActive, expiry_date FROM \`${studioDbName}\`.enterprises WHERE id = ? LIMIT 1`,
-        [orgId],
-      );
-      enterprise = rows[0];
-    } catch (err) {
-      console.warn(
-        "Subscription status: failed to access external studio DB. Defaulting to active subscription.",
-        err.message,
-      );
-      return res.json({
-        isActive: true,
-        warningLevel: null,
-        expiry_date: null,
-      });
-    }
+    const [rows] = await db.query(
+      `SELECT isActive, expiry_date FROM \`${studioDbName}\`.enterprises WHERE id = ? LIMIT 1`,
+      [orgId],
+    );
+
+    const enterprise = rows[0];
 
     if (!enterprise) {
       return res.json({
@@ -313,29 +291,20 @@ router.get("/subscription-status", requireAuth, async (req, res) => {
 
     let warningLevel = null;
     let daysLeft = null;
-    let expiry = null;
 
     if (enterprise.expiry_date) {
-      if (enterprise.expiry_date instanceof Date) {
-        expiry = enterprise.expiry_date;
-      } else if (typeof enterprise.expiry_date === "string") {
-        const [year, month, day] = enterprise.expiry_date
-          .split("-")
-          .map(Number);
-        expiry = new Date(year, month - 1, day);
-      } else if (typeof enterprise.expiry_date === "number") {
-        expiry = new Date(enterprise.expiry_date);
-      }
-    }
-
-    if (expiry) {
+      const [year, month, day] = enterprise.expiry_date.split("-").map(Number);
+      const expiry = new Date(year, month - 1, day);
       daysLeft = Math.round((expiry - today) / (1000 * 60 * 60 * 24));
 
       if (daysLeft < 0) {
+        // Already expired
         warningLevel = "expired";
       } else if (daysLeft <= 7) {
+        // Within 1 week — critical, shown every day
         warningLevel = "critical";
       } else if (daysLeft <= 30) {
+        // Within 1 month — warning, shown once per day
         warningLevel = "warning";
       }
     }

@@ -1,45 +1,39 @@
 const mysql = require("mysql2/promise");
 
+const host = process.env.MYSQL_HOST || process.env.DB_HOST || "localhost";
+const user = process.env.MYSQL_USER || process.env.DB_USER || "root";
+const password =
+  process.env.MYSQL_PASSWORD || process.env.DB_PASSWORD || "root";
+const database =
+  process.env.MYSQL_DATABASE || process.env.DB_DATABASE || "hotel_pos";
+const port = process.env.MYSQL_PORT
+  ? Number(process.env.MYSQL_PORT)
+  : process.env.DB_PORT
+    ? Number(process.env.DB_PORT)
+    : 3306;
+
 const pool = mysql.createPool({
-  host: "82.25.121.140", // force IPv4
-  port: 3306,
-
-  user: "u683444186_lock",
-  password: "Lockhotel2026",
-  database: "u683444186_lock",
-
-  ssl: {
-    rejectUnauthorized: false,
-  },
-
-  connectTimeout: 30000,
-
+  host,
+  user,
+  password,
+  database,
+  port,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-
-  charset: "utf8mb4",
+  charset: "utf8mb4_unicode_ci",
   dateStrings: true,
   timezone: "+05:30",
 });
 
 async function testConnection() {
   try {
-    console.time("mysql-connect");
-
     const connection = await pool.getConnection();
-
     await connection.ping();
-
-    console.timeEnd("mysql-connect");
-    console.log("✅ MySQL connected successfully");
-
+    console.log("✅ MySQL connected");
     connection.release();
   } catch (err) {
-    console.error("❌ MySQL connection error");
-    console.error("Code:", err.code);
-    console.error("Message:", err.message);
-    console.error(err);
+    console.error("❌ MySQL connection error:", err);
   }
 }
 
@@ -55,7 +49,7 @@ module.exports = {
   get: async (sql, params, callback) => {
     try {
       const [rows] = await pool.query(sql, params || []);
-      callback(null, rows[0]);
+      callback(null, rows[0] || undefined);
     } catch (err) {
       callback(err);
     }
@@ -73,14 +67,11 @@ module.exports = {
   run: async (sql, params, callback) => {
     try {
       const [result] = await pool.query(sql, params || []);
-
       const ctx = {
         lastID: result.insertId,
         changes: result.affectedRows,
       };
-
       if (callback) callback.call(ctx, null, ctx);
-
       return ctx;
     } catch (err) {
       if (callback) callback(err);
