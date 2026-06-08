@@ -2,8 +2,7 @@ const dbService = require("./dbService");
 const { HOTEL_GST_NUMBER } = require("../utils/billingUtils");
 const { calculateBillingTotals } = require("../utils/billingCalculator");
 
-
-  // Invoice service for line items and PDF data preparation
+// Invoice service for line items and PDF data preparation
 class InvoiceService {
   /**
    * Get complete invoice data for billing (line items + totals)
@@ -128,6 +127,14 @@ class InvoiceService {
       roomLines[0]?.unit_price !== null
         ? Number(roomLines[0].unit_price || 0)
         : undefined;
+
+    // Use the stored gst_rate from the invoice line (set correctly at checkout time)
+    // so the displayed rate always matches what was actually charged.
+    const storedRoomGstRate =
+      roomLines[0]?.gst_rate !== undefined && roomLines[0]?.gst_rate !== null
+        ? Number(roomLines[0].gst_rate)
+        : undefined;
+
     const discount =
       billing.discount !== undefined && billing.discount !== null
         ? Number(billing.discount || 0)
@@ -144,6 +151,12 @@ class InvoiceService {
       discount,
       advancePaid: Number(billing.advance_paid || 0),
     });
+
+    // Override gst_rates.room with the stored value if available
+    const finalGstRates = {
+      ...calculation.gstRates,
+      ...(storedRoomGstRate !== undefined ? { room: storedRoomGstRate } : {}),
+    };
 
     return {
       stay_days: calculation.stayDays,
@@ -166,7 +179,7 @@ class InvoiceService {
             )
           : 0,
       gst_breakdown: calculation.gstBreakdown,
-      gst_rates: calculation.gstRates,
+      gst_rates: finalGstRates,
     };
   }
 }

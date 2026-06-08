@@ -89,7 +89,7 @@ class CheckoutService {
 
       const calculation = calculateBillingTotals({
         checkIn: booking.check_in,
-        checkOut: booking.check_out || finalCheckoutTime,
+        checkOut: finalCheckoutTime,
         roomRate: Number(booking.price || 0),
         kitchenTotal: Number(booking.kitchenTotal || 0),
         addonTotal: dbAddonTotal + newAddonTotal,
@@ -119,7 +119,7 @@ class CheckoutService {
         }
 
         await tx.run(
-          `UPDATE bookings SET status = 'Checked-out', check_out = COALESCE(check_out, ?) WHERE id = ? AND org_id = ?`,
+          `UPDATE bookings SET status = 'Checked-out', check_out = ? WHERE id = ? AND org_id = ?`,
           [finalCheckoutTime, bookingId, orgId],
         );
 
