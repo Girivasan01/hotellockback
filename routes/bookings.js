@@ -3,9 +3,7 @@ const router = express.Router();
 const db = require("../db/database");
 const { requireAuth } = require("../middleware/auth");
 
-// ───────
 // DATETIME HELPERS  (pure string — zero Date() construction)
-// ───────
 
 /**
  * Safely convert any incoming datetime string to MySQL DATETIME format.
@@ -38,10 +36,8 @@ const dtLessThan = (a, b) => {
   return a < b;
 };
 
-// ───────
-// ROUTES
-// ───────
 
+// ROUTES
 // DEBUG - CHECK ROOM BY ID
 router.get("/debug/room/:roomId", requireAuth, async (req, res) => {
   try {
@@ -77,7 +73,7 @@ router.get("/calendar", requireAuth, async (req, res) => {
       FROM bookings b
       JOIN rooms r ON b.room_id = r.id
       LEFT JOIN customers c ON b.customer_id = c.id
-      WHERE b.status IN ('Confirmed', 'Checked-in')
+      WHERE b.status IN ('Confirmed', 'Checked-in', 'Checked-out')
         AND b.org_id = ?
       ORDER BY b.check_in ASC
     `;
@@ -157,7 +153,6 @@ router.post("/", requireAuth, async (req, res) => {
         .json({ error: "Check-out must be after check-in" });
     }
 
-    // ── Resolve creator name ──────
     const created_by_id = req.user.id;
     const created_by_role = req.user.role;
     let created_by_name = null;
@@ -208,8 +203,6 @@ router.post("/", requireAuth, async (req, res) => {
 
     const bookingStatus = status || "Confirmed";
 
-    // ── Insert ───────
-    // FIX: was missing `const [insertResult] = await db.query(` opener
     const [insertResult] = await db.query(
       `INSERT INTO bookings
          (booking_id, customer_id, room_id, check_in, check_out, status,

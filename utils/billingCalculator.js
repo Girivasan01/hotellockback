@@ -23,22 +23,13 @@ const daysBetween = (startDatetimeStr, endDatetimeStr) => {
   return Math.max(Math.round((endMs - startMs) / msPerDay), 1);
 };
 
-const getRoomGstRate = (roomRatePerNight = 0) =>
-  Number(roomRatePerNight || 0) > DEFAULT_GST_RATES.room.threshold
-    ? DEFAULT_GST_RATES.room.high
-    : DEFAULT_GST_RATES.room.low;
-
-const getGstRateForType = (type, { roomRatePerNight = 0 } = {}) => {
-  if (type === "room") {
-    return getRoomGstRate(roomRatePerNight);
-  }
-
+const getGstRateForType = (type) => {
   const rate = DEFAULT_GST_RATES[type];
-  return typeof rate === "object" ? rate.low : Number(rate || 0);
+  return Number(rate || 0);
 };
 
-const computeGstAmount = (type, taxableAmount, options = {}) => {
-  const rate = getGstRateForType(type, options);
+const computeGstAmount = (type, taxableAmount) => {
+  const rate = getGstRateForType(type);
   return {
     rate,
     amount: roundMoney(Number(taxableAmount || 0) * rate),
@@ -83,9 +74,7 @@ const calculateBillingTotals = ({
 
   const discountedRoomTotal = roundMoney(resolvedRoomTotal - resolvedDiscount);
 
-  const roomGst = computeGstAmount("room", discountedRoomTotal, {
-    roomRatePerNight: resolvedRoomRatePerNight,
-  });
+  const roomGst = computeGstAmount("room", discountedRoomTotal);
   const kitchenGst = computeGstAmount("kitchen", resolvedKitchenTotal);
   const addonGst = computeGstAmount("addon", resolvedAddonTotal);
 
@@ -132,7 +121,6 @@ module.exports = {
   roundMoney,
   extractDatePart,
   daysBetween,
-  getRoomGstRate,
   getGstRateForType,
   calculateBillingTotals,
 };

@@ -6,6 +6,88 @@ const { requireAuth, requireAdmin } = require("../middleware/auth");
 
 const router = express.Router();
 
+const SUBSCRIPTION_EXPIRED_MESSAGE =
+  "Subscription expired or inactive. Please contact Webaac Solutions to renew.";
+
+async function loadEnterpriseSubscription(orgId) {
+  if (!orgId) return null;
+
+  const studioDbName = process.env.STUDIO_DB_NAME || "studio_admin";
+  let rows;
+
+  try {
+    [rows] = await db.query(
+      `SELECT is_active AS isActive, expiry_date
+       FROM \`${studioDbName}\`.enterprises
+       WHERE id = ? LIMIT 1`,
+      [orgId],
+    );
+  } catch {
+    [rows] = await db.query(
+      `SELECT isActive, expiry_date
+       FROM \`${studioDbName}\`.enterprises
+       WHERE id = ? LIMIT 1`,
+      [orgId],
+    );
+  }
+
+  return rows[0] || null;
+}
+
+function evaluateSubscription(enterprise) {
+  if (!enterprise) {
+    return {
+      isActive: true,
+      warningLevel: null,
+      expiry_date: null,
+      daysLeft: null,
+      canLogin: true,
+    };
+  }
+
+  const activeValue = enterprise.isActive ?? enterprise.is_active;
+  const isActive =
+    activeValue === undefined || activeValue === null
+      ? true
+      : Boolean(Number(activeValue));
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let warningLevel = null;
+  let daysLeft = null;
+  const expiry_date = enterprise.expiry_date
+    ? String(enterprise.expiry_date).slice(0, 10)
+    : null;
+
+  if (expiry_date) {
+    const [year, month, day] = expiry_date.split("-").map(Number);
+    const expiry = new Date(year, month - 1, day);
+    daysLeft = Math.round((expiry - today) / (1000 * 60 * 60 * 24));
+
+    if (daysLeft < 0) warningLevel = "expired";
+    else if (daysLeft <= 7) warningLevel = "critical";
+    else if (daysLeft <= 30) warningLevel = "warning";
+  }
+
+  const canLogin =
+    isActive && warningLevel !== "expired";
+
+  return {
+    isActive,
+    warningLevel,
+    expiry_date,
+    daysLeft,
+    canLogin,
+  };
+}
+
+async function assertCanLoginForOrg(orgId) {
+  const enterprise = await loadEnterpriseSubscription(orgId);
+  const status = evaluateSubscription(enterprise);
+  return status;
+}
+
 const buildLoginHandler = ({
   requiredRole = null,
   roleMessage = "Access denied",
@@ -46,6 +128,14 @@ const buildLoginHandler = ({
 
       if (requiredRole && user.role !== requiredRole) {
         return res.status(403).json({ message: roleMessage });
+      }
+
+      const subscription = await assertCanLoginForOrg(user.org_id);
+      if (!subscription.canLogin) {
+        return res.status(403).json({
+          message: SUBSCRIPTION_EXPIRED_MESSAGE,
+          code: "SUBSCRIPTION_EXPIRED",
+        });
       }
 
       const token = jwt.sign(
@@ -259,61 +349,13 @@ router.put("/change-password", requireAuth, async (req, res) => {
 ====================== */
 router.get("/subscription-status", requireAuth, async (req, res) => {
   try {
-    const orgId = req.user.org_id;
-    if (!orgId) {
-      return res.json({
-        isActive: true,
-        warningLevel: null,
-        expiry_date: null,
-      });
-    }
-
-    const studioDbName = process.env.STUDIO_DB_NAME || "studio_admin";
-
-    const [rows] = await db.query(
-      `SELECT isActive, expiry_date FROM \`${studioDbName}\`.enterprises WHERE id = ? LIMIT 1`,
-      [orgId],
-    );
-
-    const enterprise = rows[0];
-
-    if (!enterprise) {
-      return res.json({
-        isActive: true,
-        warningLevel: null,
-        expiry_date: null,
-      });
-    }
-
-    const isActive = Boolean(enterprise.isActive);
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-    let warningLevel = null;
-    let daysLeft = null;
-
-    if (enterprise.expiry_date) {
-      const [year, month, day] = enterprise.expiry_date.split("-").map(Number);
-      const expiry = new Date(year, month - 1, day);
-      daysLeft = Math.round((expiry - today) / (1000 * 60 * 60 * 24));
-
-      if (daysLeft < 0) {
-        // Already expired
-        warningLevel = "expired";
-      } else if (daysLeft <= 7) {
-        // Within 1 week — critical, shown every day
-        warningLevel = "critical";
-      } else if (daysLeft <= 30) {
-        // Within 1 month — warning, shown once per day
-        warningLevel = "warning";
-      }
-    }
-
+    const enterprise = await loadEnterpriseSubscription(req.user.org_id);
+    const status = evaluateSubscription(enterprise);
     return res.json({
-      isActive,
-      expiry_date: enterprise.expiry_date,
-      warningLevel,
-      daysLeft,
+      isActive: status.isActive,
+      expiry_date: status.expiry_date,
+      warningLevel: status.warningLevel,
+      daysLeft: status.daysLeft,
     });
   } catch (err) {
     console.error("Subscription status error:", err);

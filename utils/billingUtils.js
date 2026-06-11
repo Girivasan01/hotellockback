@@ -1,19 +1,10 @@
-/**
- * Billing utilities and constants for backend
- */
-
 // Hotel GST Number
 const HOTEL_GST_NUMBER = "33AMQPK7880E2ZO";
 
-// Default GST rates
 const DEFAULT_GST_RATES = {
-  room: {
-    low: 0.05, // 5% for room price < 7500
-    high: 0.18, // 18% for room price >= 7500
-    threshold: 7499, // Threshold: > 7499 means >= 7500 applies 18%
-  },
-  kitchen: 0.05, // 5% fixed
-  addon: 0, // add-ons are non-taxable
+  room: 0.05,     // 5% flat for all room prices
+  kitchen: 0.05,  // 5% fixed
+  addon: 0,       // add-ons are non-taxable
 };
 
 /**
@@ -23,16 +14,9 @@ function computeGST(type, amount) {
   const rate = DEFAULT_GST_RATES[type];
   if (!rate) return { gst: 0, total: amount };
 
-  const gstRate =
-    typeof rate === "object"
-      ? amount > rate.threshold
-        ? rate.high
-        : rate.low
-      : rate;
-
-  const gst = amount * gstRate;
+  const gst = amount * rate;
   return {
-    gst_rate: gstRate,
+    gst_rate: rate,
     gst_amount: Number(gst.toFixed(2)),
     total: Number((amount + gst).toFixed(2)),
   };

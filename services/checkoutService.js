@@ -82,6 +82,9 @@ class CheckoutService {
       );
 
       const finalCheckoutTime = getLocalDateTime();
+
+      const bookedCheckOutDate = booking.check_out;
+
       const discountToApply =
         discount !== undefined && discount !== null
           ? Number(discount || 0)
@@ -89,7 +92,7 @@ class CheckoutService {
 
       const calculation = calculateBillingTotals({
         checkIn: booking.check_in,
-        checkOut: finalCheckoutTime,
+        checkOut: bookedCheckOutDate,
         roomRate: Number(booking.price || 0),
         kitchenTotal: Number(booking.kitchenTotal || 0),
         addonTotal: dbAddonTotal + newAddonTotal,
@@ -140,7 +143,7 @@ class CheckoutService {
             booking.customer_id,
             booking.room_id,
             booking.check_in,
-            finalCheckoutTime,
+            bookedCheckOutDate, 
             calculation.advancePaid,
             calculation.discount,
             calculation.totalAmount,

@@ -56,7 +56,8 @@ const configuredClientUrls = [
   process.env.NETLIFY_URL
     ? normalizeOrigin(`https://${process.env.NETLIFY_URL}`)
     : null,
-  "http://localhost:5173",
+  // "http://localhost:5173",
+  "http://localhost:5174",
   "http://localhost:3000",
   "http://127.0.0.1:5173",
   "http://127.0.0.1:3000",
@@ -109,13 +110,15 @@ async function seedAdminUser() {
   const name = process.env.ADMIN_NAME || "Admin";
 
   try {
-    const [rows] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
+    const [rows] = await db.query("SELECT id FROM users WHERE email = ?", [
+      email,
+    ]);
     if (Array.isArray(rows) && rows.length > 0) return;
 
     const hashed = await bcrypt.hash(password, 10);
     await db.query(
       "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)",
-      [name, email, hashed, "admin"]
+      [name, email, hashed, "admin"],
     );
     console.log("Admin user seeded:", email);
   } catch (err) {
@@ -133,13 +136,15 @@ async function seedKitchenUser() {
   const name = process.env.KITCHEN_NAME || "Kitchen";
 
   try {
-    const [rows] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
+    const [rows] = await db.query("SELECT id FROM users WHERE email = ?", [
+      email,
+    ]);
     if (Array.isArray(rows) && rows.length > 0) return;
 
     const hashed = await bcrypt.hash(password, 10);
     await db.query(
       "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)",
-      [name, email, hashed, "kitchen"]
+      [name, email, hashed, "kitchen"],
     );
     console.log("Kitchen user seeded:", email);
   } catch (err) {
@@ -258,7 +263,9 @@ app.use((err, req, res, next) => {
   console.error("Server error:", err.stack || err.message);
   res.status(500).json({
     success: false,
-    message: isProd ? "Internal Server Error" : err.message || "Internal Server Error",
+    message: isProd
+      ? "Internal Server Error"
+      : err.message || "Internal Server Error",
   });
 });
 

@@ -2,11 +2,7 @@ const dbService = require("./dbService");
 const { HOTEL_GST_NUMBER } = require("../utils/billingUtils");
 const { calculateBillingTotals } = require("../utils/billingCalculator");
 
-// Invoice service for line items and PDF data preparation
 class InvoiceService {
-  /**
-   * Get complete invoice data for billing (line items + totals)
-   */
   async getInvoiceData(billingId, orgId) {
     const billing = await dbService.get(
       `SELECT b.*, c.name as customer_name, c.address as customer_address, c.contact as customer_contact,
@@ -39,8 +35,8 @@ class InvoiceService {
 
     return {
       ...billing,
-      check_in: billing.booking_check_in || billing.check_in,
-      check_out: billing.booking_check_out || billing.check_out,
+      check_in: billing.check_in,
+      check_out: billing.check_out,
       lines: groupedLines,
       totals,
       nights: totals.stay_days,
@@ -104,16 +100,8 @@ class InvoiceService {
         advance_paid: advancePaid,
         final_payable: Number((grossTotal - discount - advancePaid).toFixed(2)),
         gst_rate_avg: 0,
-        gst_breakdown: {
-          room: 0,
-          kitchen: 0,
-          addon: 0,
-        },
-        gst_rates: {
-          room: 0,
-          kitchen: 0,
-          addon: 0,
-        },
+        gst_breakdown: { room: 0, kitchen: 0, addon: 0 },
+        gst_rates: { room: 0, kitchen: 0, addon: 0 },
       };
     }
 
@@ -121,15 +109,12 @@ class InvoiceService {
     const kitchenTotal = this._sumLineSubtotal(kitchenLines);
     const addonTotal = this._sumLineSubtotal(addonLines);
     const lineDiscountTotal = Math.abs(this._sumLineSubtotal(discountLines));
-    const stayDays = undefined;
+
     const roomRatePerNight =
-      roomLines[0]?.unit_price !== undefined &&
-      roomLines[0]?.unit_price !== null
+      roomLines[0]?.unit_price !== undefined && roomLines[0]?.unit_price !== null
         ? Number(roomLines[0].unit_price || 0)
         : undefined;
 
-    // Use the stored gst_rate from the invoice line (set correctly at checkout time)
-    // so the displayed rate always matches what was actually charged.
     const storedRoomGstRate =
       roomLines[0]?.gst_rate !== undefined && roomLines[0]?.gst_rate !== null
         ? Number(roomLines[0].gst_rate)
@@ -141,9 +126,8 @@ class InvoiceService {
         : lineDiscountTotal;
 
     const calculation = calculateBillingTotals({
-      checkIn: billing.booking_check_in || billing.check_in,
-      checkOut: billing.booking_check_out || billing.check_out,
-      stayDays,
+      checkIn: billing.check_in,
+      checkOut: billing.check_out,
       roomRatePerNight,
       roomTotal,
       kitchenTotal,
@@ -152,7 +136,6 @@ class InvoiceService {
       advancePaid: Number(billing.advance_paid || 0),
     });
 
-    // Override gst_rates.room with the stored value if available
     const finalGstRates = {
       ...calculation.gstRates,
       ...(storedRoomGstRate !== undefined ? { room: storedRoomGstRate } : {}),
@@ -174,9 +157,7 @@ class InvoiceService {
       final_payable: calculation.finalPayable,
       gst_rate_avg:
         calculation.subtotal > 0
-          ? Number(
-              ((calculation.gstAmount / calculation.subtotal) * 100).toFixed(1),
-            )
+          ? Number(((calculation.gstAmount / calculation.subtotal) * 100).toFixed(1))
           : 0,
       gst_breakdown: calculation.gstBreakdown,
       gst_rates: finalGstRates,
