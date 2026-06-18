@@ -56,11 +56,12 @@ const configuredClientUrls = [
   process.env.NETLIFY_URL
     ? normalizeOrigin(`https://${process.env.NETLIFY_URL}`)
     : null,
-  // "http://localhost:5173",
+  "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:3000",
   "http://127.0.0.1:5173",
   "http://127.0.0.1:3000",
+  "https://webaachotel.netlify.app",
 ].filter(Boolean);
 
 const isAllowedOrigin = (origin) => {
@@ -225,6 +226,7 @@ const AUTH_ONLY_API_PATHS = new Set([
   "/api/auth/change-password",
   "/api/auth/logout",
   "/api/auth/subscription-status",
+  "/api/auth/storage-usage",
 ]);
 
 app.use((req, res, next) => {

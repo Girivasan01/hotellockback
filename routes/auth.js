@@ -70,8 +70,7 @@ function evaluateSubscription(enterprise) {
     else if (daysLeft <= 30) warningLevel = "warning";
   }
 
-  const canLogin =
-    isActive && warningLevel !== "expired";
+  const canLogin = isActive && warningLevel !== "expired";
 
   return {
     isActive,
@@ -360,6 +359,40 @@ router.get("/subscription-status", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("Subscription status error:", err);
     res.status(500).json({ error: "Failed to check subscription" });
+  }
+});
+
+router.get("/storage-usage", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const orgId = req.user.org_id;
+    if (!orgId)
+      return res.json({ usedBytes: 0, usedGb: 0, limitGb: 0, remainingGb: 0 });
+
+    const studioDbName = process.env.STUDIO_DB_NAME || "studio_admin";
+    const [rows] = await db.query(
+      `SELECT a.storage_limit_gb AS storageLimitGb,
+              COALESCE(SUM(CASE WHEN b.status = 'SUCCESS' THEN b.size_bytes ELSE 0 END), 0) AS usedBytes
+       FROM \`${studioDbName}\`.applications a
+       LEFT JOIN \`${studioDbName}\`.backups b ON b.application_id = a.id
+       WHERE a.enterprise_id = ? AND a.is_active = 1
+       GROUP BY a.id
+       LIMIT 1`,
+      [orgId],
+    );
+
+    const row = rows[0];
+    if (!row)
+      return res.json({ usedBytes: 0, usedGb: 0, limitGb: 0, remainingGb: 0 });
+
+    const usedBytes = Number(row.usedBytes || 0);
+    const usedGb = usedBytes / 1024 ** 3;
+    const limitGb = Number(row.storageLimitGb || 0);
+    const remainingGb = Math.max(0, limitGb - usedGb);
+
+    res.json({ usedBytes, usedGb, limitGb, remainingGb });
+  } catch (err) {
+    console.error("Storage usage error:", err);
+    res.status(500).json({ error: "Failed to fetch storage usage" });
   }
 });
 
