@@ -138,6 +138,7 @@ class BillingService {
         b.billed_by_name,
         b.billed_by_role,
         c.name as customer_name,
+        c.photo as customer_photo,
         COUNT(i.id) as line_items_count,
         SUM(i.total) as line_items_total
       FROM billings b 
@@ -159,7 +160,8 @@ class BillingService {
         b.is_downloaded,
         b.billed_by_name,
         b.billed_by_role,
-        c.name
+        c.name,
+        c.photo
       ORDER BY b.created_at DESC
       LIMIT ? OFFSET ?
     `,

@@ -55,6 +55,24 @@ const migrations = [
   `CREATE INDEX idx_bookings_org ON bookings(org_id)`,
   `CREATE INDEX idx_users_org ON users(org_id)`,
   `CREATE INDEX idx_staff_org ON staff(org_id)`,
+
+  // ── Customers: photo column ───────
+  `ALTER TABLE customers ADD COLUMN photo VARCHAR(1024) NULL`,
+
+  // ── Enterprises: synced from Vault Sync (subscription + storage) ──
+  `CREATE TABLE IF NOT EXISTS enterprises (
+    id INT NOT NULL PRIMARY KEY,
+    enterprise VARCHAR(255) NOT NULL,
+    isActive TINYINT(1) NOT NULL DEFAULT 1,
+    start_date DATE DEFAULT NULL,
+    expiry_date DATE DEFAULT NULL,
+    storage_limit_gb DECIMAL(10,2) DEFAULT 0,
+    storage_used_bytes BIGINT DEFAULT 0,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  `ALTER TABLE enterprises ADD COLUMN storage_limit_gb DECIMAL(10,2) DEFAULT 0`,
+  `ALTER TABLE enterprises ADD COLUMN storage_used_bytes BIGINT DEFAULT 0`,
 ];
 
 async function columnExists(tableName, columnName) {

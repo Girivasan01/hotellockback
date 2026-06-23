@@ -69,7 +69,8 @@ router.get("/calendar", requireAuth, async (req, res) => {
         b.check_out,
         b.status,
         r.room_number,
-        c.name AS customer_name
+        c.name AS customer_name,
+        c.photo AS customer_photo
       FROM bookings b
       JOIN rooms r ON b.room_id = r.id
       LEFT JOIN customers c ON b.customer_id = c.id
@@ -93,6 +94,7 @@ router.get("/", requireAuth, async (req, res) => {
       SELECT
         b.*,
         c.name    AS customer_name,
+        c.photo   AS customer_photo,
         c.contact AS customer_contact,
         r.room_number,
         r.category
@@ -306,6 +308,7 @@ router.get("/:id", requireAuth, async (req, res) => {
       SELECT
         b.*,
         c.name    AS customer_name,
+        c.photo   AS customer_photo,
         c.contact AS customer_contact,
         r.room_number,
         r.category

@@ -117,6 +117,7 @@ exports.getKitchenOrders = (req, res) => {
       b.status AS booking_status,
 
       c.name AS customer_name,
+      c.photo AS customer_photo,
       c.contact AS customer_contact,
       c.email AS customer_email,
 

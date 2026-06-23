@@ -62,7 +62,7 @@ exports.getSummary = async (req, res) => {
     );
 
     const recentCheckins = await query(
-      `SELECT c.name, r.room_number AS room, b.check_in AS date
+      `SELECT c.name, c.photo AS photo, r.room_number AS room, b.check_in AS date
        FROM bookings b
        JOIN customers c ON c.id = b.customer_id AND c.org_id = b.org_id
        JOIN rooms r ON r.id = b.room_id AND r.org_id = b.org_id
@@ -97,6 +97,7 @@ exports.getSummary = async (req, res) => {
       todaysRevenue: todaysRevenue.sum,
       recentCheckins: recentCheckins.map((row) => ({
         name: row.name,
+        photo: row.photo || null,
         room: row.room,
         date: row.date
           ? new Date(row.date).toISOString().slice(0, 10)

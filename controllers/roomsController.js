@@ -328,7 +328,8 @@ exports.getActiveRooms = (req, res) => {
       r.capacity,
       b.people_count,
       c.id AS customer_id,
-      c.name AS customer_name
+      c.name AS customer_name,
+      c.photo AS customer_photo
 
     FROM bookings b
     JOIN rooms r ON b.room_id = r.id

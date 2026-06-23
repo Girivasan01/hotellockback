@@ -61,7 +61,7 @@ const configuredClientUrls = [
   "http://localhost:3000",
   "http://127.0.0.1:5173",
   "http://127.0.0.1:3000",
-  "https://webaachotel.netlify.app",
+  "https://webaachotel.netlify.app"
 ].filter(Boolean);
 
 const isAllowedOrigin = (origin) => {
@@ -98,7 +98,12 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 // ================= STATIC FILES =================
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+const uploadsDir = path.join(__dirname, "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  console.log("Created uploads folder:", uploadsDir);
+}
+app.use("/uploads", express.static(uploadsDir));
 
 // ================= SEED USERS =================
 async function seedAdminUser() {
