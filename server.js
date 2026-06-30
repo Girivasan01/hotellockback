@@ -62,7 +62,7 @@ const configuredClientUrls = [
   "http://127.0.0.1:5173",
   "http://127.0.0.1:3000",
   "https://webaachotel.netlify.app",
-  "https://demo.webaac.in,
+  "https://demo.webaac.in",
 ].filter(Boolean);
 
 const isAllowedOrigin = (origin) => {
