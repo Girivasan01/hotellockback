@@ -69,12 +69,12 @@ const COLORS = {
 exports.generateInvoicePDF = async (req, res) => {
   try {
     const { billing_id } = req.body;
-    
+
     if (!billing_id) {
-      return res.status(400).json({ error: 'billing_id required' });
+      return res.status(400).json({ error: "billing_id required" });
     }
 
-    const invoiceService = require('../services/invoiceService');
+    const invoiceService = require("../services/invoiceService");
     const invoiceData = await invoiceService.getInvoiceData(billing_id);
     const selectedBill = invoiceData;
 
@@ -115,7 +115,7 @@ exports.generateInvoicePDF = async (req, res) => {
       .fontSize(20)
       .font("Helvetica-Bold")
       .fillColor("#333333")
-      .text("HOTEL FRIDAY INN", 130, 40);
+      .text("Webaac Hotel CRM", 130, 40);
 
     doc
       .fontSize(10)
@@ -347,7 +347,7 @@ exports.generateInvoicePDF = async (req, res) => {
     // const roomLines = allLines.room || [];
     // const kitchenLines = allLines.kitchen || [];
     // const addonLines = allLines.addon || [];
-    // const gstLines = allLines.gst || []; 
+    // const gstLines = allLines.gst || [];
     //     `, [selectedBill.booking_db_id], (err, rows) => {
     //       if (!err && rows.length > 0) {
     //         allAddons = rows.map(row => ({ name: row.name, price: row.price, qty: 1 }));
@@ -365,7 +365,11 @@ exports.generateInvoicePDF = async (req, res) => {
     let allAddons = addonLines; // use from service directly
 
     if (Array.isArray(allAddons) && allAddons.length > 0) {
-      doc.fontSize(10).font("Helvetica-Bold").fillColor("#333").text("ADD-ONS", col1 + 10, tableY);
+      doc
+        .fontSize(10)
+        .font("Helvetica-Bold")
+        .fillColor("#333")
+        .text("ADD-ONS", col1 + 10, tableY);
       tableY += 15;
 
       allAddons.forEach((addon) => {
@@ -394,7 +398,6 @@ exports.generateInvoicePDF = async (req, res) => {
       .moveTo(40, tableY)
       .lineTo(pageWidth - 40, tableY)
       .stroke();
-
 
     tableY += 15;
 
@@ -523,7 +526,7 @@ exports.generateInvoicePDF = async (req, res) => {
       .fontSize(8)
       .font("Helvetica")
       .fillColor("#999999")
-      .text("Thank you for choosing Hotel Friday Inn!", 40, footerY);
+      .text("Thank you for choosing Webaac Hotel CRM!", 40, footerY);
 
     // Hotel Info
     doc

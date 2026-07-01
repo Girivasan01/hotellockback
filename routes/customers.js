@@ -47,9 +47,11 @@ const storage = multer.diskStorage({
   },
 });
 
+const MAX_FILE_SIZE = 1 * 1024 * 1024;
+
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: MAX_FILE_SIZE },
 });
 
 const uploadFields = upload.fields([
@@ -61,7 +63,7 @@ function handleUpload(req, res, next) {
   uploadFields(req, res, (err) => {
     if (!err) return next();
     if (err.code === "LIMIT_FILE_SIZE") {
-      return res.status(400).json({ message: "File must be under 5MB" });
+      return res.status(400).json({ message: "File must be under 1MB" });
     }
     return res.status(400).json({ message: err.message || "Upload failed" });
   });
@@ -108,6 +110,35 @@ router.get("/", async (req, res) => {
         error: "customers.photo column missing. Run db/customer-photo.sql in phpMyAdmin or restart backend.",
       });
     }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET customer booking history ──
+router.get("/:id/bookings", async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT
+         b.id,
+         b.booking_id,
+         b.check_in,
+         b.check_out,
+         b.status,
+         b.price,
+         b.advance_paid,
+         b.discount,
+         r.room_number,
+         r.category
+       FROM bookings b
+       LEFT JOIN rooms r ON b.room_id = r.id
+       WHERE b.customer_id = ? AND b.org_id = ?
+       ORDER BY b.check_in DESC
+       LIMIT 20`,
+      [req.params.id, req.orgId],
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("GET CUSTOMER BOOKINGS ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
