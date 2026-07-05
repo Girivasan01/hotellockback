@@ -54,25 +54,18 @@ async function loadEnterpriseRecord(db, orgId) {
   return (await queryLocalEnterprise(db, orgId)) || (await queryVaultEnterprise(db, orgId));
 }
 
-async function loadStorageUsage(db, orgId) {
-  if (!orgId) {
-    return { usedBytes: 0, usedGb: 0, limitGb: 0, remainingGb: 0, source: "none" };
-  }
+function buildStorageUsage(usedBytes, limitGb, source) {
+  const usedGb = usedBytes / 1024 ** 3;
+  return {
+    usedBytes,
+    usedGb,
+    limitGb,
+    remainingGb: Math.max(0, limitGb - usedGb),
+    source,
+  };
+}
 
-  const local = await queryLocalEnterprise(db, orgId);
-  if (local && Number(local.storageLimitGb || 0) > 0) {
-    const usedBytes = Number(local.storageUsedBytes || 0);
-    const usedGb = usedBytes / 1024 ** 3;
-    const limitGb = Number(local.storageLimitGb || 0);
-    return {
-      usedBytes,
-      usedGb,
-      limitGb,
-      remainingGb: Math.max(0, limitGb - usedGb),
-      source: "local",
-    };
-  }
-
+async function queryVaultStorageUsage(db, orgId) {
   const studioDbName = getStudioDbName();
   try {
     const [rows] = await db.query(
@@ -80,39 +73,41 @@ async function loadStorageUsage(db, orgId) {
               COALESCE(SUM(CASE WHEN b.status = 'SUCCESS' THEN b.size_bytes ELSE 0 END), 0) AS usedBytes
        FROM \`${studioDbName}\`.applications a
        LEFT JOIN \`${studioDbName}\`.backups b ON b.application_id = a.id
-       WHERE a.enterprise_id = ? AND a.is_active = 1
+       WHERE a.is_active = 1
+         AND (a.enterprise_id = ? OR a.hotel_org_id = ?)
        GROUP BY a.id
+       ORDER BY a.created_at ASC
        LIMIT 1`,
-      [orgId],
+      [orgId, orgId],
     );
     const row = rows[0];
-    if (row) {
-      const usedBytes = Number(row.usedBytes || 0);
-      const usedGb = usedBytes / 1024 ** 3;
-      const limitGb = Number(row.storageLimitGb || 0);
-      return {
-        usedBytes,
-        usedGb,
-        limitGb,
-        remainingGb: Math.max(0, limitGb - usedGb),
-        source: "vault",
-      };
-    }
+    if (!row) return null;
+
+    const usedBytes = Number(row.usedBytes || 0);
+    const limitGb = Number(row.storageLimitGb || 0);
+    if (limitGb <= 0 && usedBytes <= 0) return null;
+
+    return buildStorageUsage(usedBytes, limitGb, "vault");
   } catch {
-    /* vault DB not reachable — use local cache if any columns exist */
+    return null;
+  }
+}
+
+async function loadStorageUsage(db, orgId) {
+  if (!orgId) {
+    return { usedBytes: 0, usedGb: 0, limitGb: 0, remainingGb: 0, source: "none" };
   }
 
+  const vaultUsage = await queryVaultStorageUsage(db, orgId);
+  if (vaultUsage) return vaultUsage;
+
+  const local = await queryLocalEnterprise(db, orgId);
   if (local) {
     const usedBytes = Number(local.storageUsedBytes || 0);
-    const usedGb = usedBytes / 1024 ** 3;
     const limitGb = Number(local.storageLimitGb || 0);
-    return {
-      usedBytes,
-      usedGb,
-      limitGb,
-      remainingGb: Math.max(0, limitGb - usedGb),
-      source: "local",
-    };
+    if (limitGb > 0 || usedBytes > 0) {
+      return buildStorageUsage(usedBytes, limitGb, "local");
+    }
   }
 
   return { usedBytes: 0, usedGb: 0, limitGb: 0, remainingGb: 0, source: "none" };

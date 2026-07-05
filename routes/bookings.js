@@ -36,7 +36,6 @@ const dtLessThan = (a, b) => {
   return a < b;
 };
 
-
 // ROUTES
 // DEBUG - CHECK ROOM BY ID
 router.get("/debug/room/:roomId", requireAuth, async (req, res) => {
@@ -285,12 +284,33 @@ router.post("/:id/checkout", requireAuth, async (req, res) => {
       });
     }
 
+    const invoiceWhatsAppService = require("../services/invoiceWhatsAppService");
+    const whatsappService = require("../services/whatsappService");
+    const shouldSendWhatsapp = req.body.send_whatsapp !== false;
+    let whatsapp = { skipped: true, message: "WhatsApp is not configured" };
+
+    if (!shouldSendWhatsapp) {
+      whatsapp = {
+        skipped: true,
+        message: "WhatsApp notification declined by staff",
+      };
+    } else if (whatsappService.isConfigured()) {
+      const whatsappResult = await invoiceWhatsAppService.sendInvoice(
+        result.billing_id,
+        req.orgId,
+      );
+      whatsapp = {
+        success: whatsappResult.success,
+        message: whatsappResult.message,
+      };
+    }
     res.json({
       success: true,
       message: "Checkout completed successfully",
       billing_id: result.billing_id,
       idempotency_key: result.idempotency_key,
       summary: result.summary,
+      whatsapp,
     });
   } catch (error) {
     console.error("Checkout processing failed:", error);

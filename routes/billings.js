@@ -14,7 +14,7 @@ router.get("/profit", billingController.getProfit);
    GET ALL BILLS
    URL: /api/billings
 ================================ */
-const billingService = require('../services/billingService');
+const billingService = require("../services/billingService");
 
 router.get("/", async (req, res) => {
   try {
@@ -41,16 +41,50 @@ router.get("/", async (req, res) => {
 ================================ */
 router.get("/preview/:bookingId", async (req, res) => {
   const { bookingId } = req.params;
-  
+
   try {
-    const preview = await billingService.getBillingPreview(bookingId, req.orgId);
+    const preview = await billingService.getBillingPreview(
+      bookingId,
+      req.orgId,
+    );
     res.json(preview);
   } catch (error) {
     console.error("❌ BILLING PREVIEW FAILED:", error);
-    if (error.message === 'Booking not found') {
-      return res.status(404).json({ error: 'Booking not found' });
+    if (error.message === "Booking not found") {
+      return res.status(404).json({ error: "Booking not found" });
     }
     res.status(500).json({ error: error.message });
+  }
+});
+
+/* ===============================
+   GET INVOICE PDF
+   URL: /api/billings/:id/pdf
+================================ */
+router.get("/:id/pdf", async (req, res) => {
+  const billId = req.params.id;
+
+  try {
+    const invoiceService = require("../services/invoiceService");
+    const {
+      generateInvoicePdfBuffer,
+    } = require("../services/invoicePdfService");
+
+    const invoiceData = await invoiceService.getInvoiceData(billId, req.orgId);
+    const pdfBuffer = await generateInvoicePdfBuffer(invoiceData);
+    const filename = `Hotel_Invoice_${billId}_${Date.now()}.pdf`;
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(pdfBuffer);
+  } catch (error) {
+    console.error("❌ INVOICE PDF FAILED:", error);
+    if (error.message === "Billing not found") {
+      return res.status(404).json({ error: "Bill not found" });
+    }
+    res
+      .status(500)
+      .json({ error: error.message || "Failed to generate invoice PDF" });
   }
 });
 
@@ -60,15 +94,15 @@ router.get("/preview/:bookingId", async (req, res) => {
 ================================ */
 router.get("/:id", async (req, res) => {
   const billId = req.params.id;
-  
+
   try {
-    const billingService = require('../services/billingService');
+    const billingService = require("../services/billingService");
     const bill = await billingService.getBillingDetails(billId, req.orgId);
     res.json(bill);
   } catch (error) {
     console.error("❌ GET BILLING DETAILS FAILED:", error);
-    if (error.message === 'Billing not found') {
-      return res.status(404).json({ error: 'Bill not found' });
+    if (error.message === "Billing not found") {
+      return res.status(404).json({ error: "Bill not found" });
     }
     res.status(500).json({ error: error.message });
   }
@@ -101,6 +135,29 @@ router.delete("/:id", async (req, res) => {
    MARK BILL AS DOWNLOADED
    URL: PATCH /api/billings/:id/downloaded
 ================================ */
+router.post("/:id/send-whatsapp", async (req, res) => {
+  const billId = req.params.id;
+
+  try {
+    const invoiceWhatsAppService = require("../services/invoiceWhatsAppService");
+    const result = await invoiceWhatsAppService.sendInvoice(billId, req.orgId);
+
+    if (result.skipped) {
+      return res.status(503).json({
+        error: result.message || "WhatsApp is not configured",
+        skipped: true,
+      });
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error("❌ SEND WHATSAPP FAILED:", error);
+    res
+      .status(400)
+      .json({ error: error.message || "Failed to send invoice via WhatsApp" });
+  }
+});
+
 router.patch("/:id/downloaded", async (req, res) => {
   const billId = req.params.id;
   const { gst_number } = req.body;
@@ -196,7 +253,7 @@ router.get("/export/csv", async (req, res) => {
         tariffPrice: sum.tariffPrice + Number(row.tariffPrice || 0),
         tariffGst: sum.tariffGst + Number(row.tariffGst || 0),
       }),
-      { tariffPrice: 0, tariffGst: 0 }
+      { tariffPrice: 0, tariffGst: 0 },
     );
 
     csvRows.push({
@@ -228,7 +285,7 @@ router.get("/export/csv", async (req, res) => {
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader(
       "Content-Disposition",
-      "attachment; filename=billing-statements.csv"
+      "attachment; filename=billing-statements.csv",
     );
     res.status(200).send(`\uFEFF${csv}`);
   } catch (error) {

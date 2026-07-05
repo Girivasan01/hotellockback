@@ -63,14 +63,17 @@ describe("studioDb", () => {
 
     it("calculates usage from local enterprise cache", async () => {
       const mockDb = {
-        query: jest.fn().mockResolvedValueOnce([
-          [
-            {
-              storageLimitGb: 10,
-              storageUsedBytes: 1073741824,
-            },
-          ],
-        ]),
+        query: jest
+          .fn()
+          .mockResolvedValueOnce([[]])
+          .mockResolvedValueOnce([
+            [
+              {
+                storageLimitGb: 10,
+                storageUsedBytes: 1073741824,
+              },
+            ],
+          ]),
       };
 
       const { loadStorageUsage } = require("../../utils/studioDb");
@@ -80,6 +83,56 @@ describe("studioDb", () => {
       expect(usage.limitGb).toBe(10);
       expect(usage.usedGb).toBe(1);
       expect(usage.remainingGb).toBe(9);
+    });
+
+    it("prefers live vault data over local cache", async () => {
+      process.env.STUDIO_DB_NAME = "syncvault";
+      const mockDb = {
+        query: jest
+          .fn()
+          .mockResolvedValueOnce([
+            [{ storageLimitGb: 3, usedBytes: 536870912 }],
+          ])
+          .mockResolvedValueOnce([
+            [
+              {
+                storageLimitGb: 10,
+                storageUsedBytes: 1073741824,
+              },
+            ],
+          ]),
+      };
+
+      const { loadStorageUsage } = require("../../utils/studioDb");
+      const usage = await loadStorageUsage(mockDb, 1);
+
+      expect(usage.source).toBe("vault");
+      expect(usage.limitGb).toBe(3);
+      expect(usage.usedGb).toBe(0.5);
+      expect(mockDb.query).toHaveBeenCalledTimes(1);
+    });
+
+    it("falls back to local cache when vault DB is unreachable", async () => {
+      const mockDb = {
+        query: jest
+          .fn()
+          .mockRejectedValueOnce(new Error("vault db missing"))
+          .mockResolvedValueOnce([
+            [
+              {
+                storageLimitGb: 3,
+                storageUsedBytes: 0,
+              },
+            ],
+          ]),
+      };
+
+      const { loadStorageUsage } = require("../../utils/studioDb");
+      const usage = await loadStorageUsage(mockDb, 2);
+
+      expect(usage.source).toBe("local");
+      expect(usage.limitGb).toBe(3);
+      expect(usage.usedGb).toBe(0);
     });
   });
 });
