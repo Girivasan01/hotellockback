@@ -208,24 +208,26 @@ router.get("/export/csv", async (req, res) => {
   const sql = `
     SELECT
       b.id AS id,
+      b.created_at AS checkout_date,
       c.name AS customer_name,
       b.gst_number,
       COALESCE(
         CONCAT(r_live.room_number, ' / ', r_live.category),
         CONCAT(r_stale.room_number, ' / ', r_stale.category)
       ) AS room_description,
-      COALESCE(room_lines.room_tariff, 0) AS tariff_price,
-      COALESCE(room_lines.room_gst, 0) AS tariff_gst
+      COALESCE(room_lines.room_tariff, 0) AS raw_tariff,
+      COALESCE(b.discount, 0) AS discount,
+      COALESCE(room_lines.room_gst_rate, 0.05) AS gst_rate
     FROM billings b
     LEFT JOIN bookings bk ON bk.booking_id = b.booking_id
     LEFT JOIN rooms r_live ON r_live.id = bk.room_id
     LEFT JOIN rooms r_stale ON r_stale.id = b.room_id
     LEFT JOIN customers c ON c.id = b.customer_id
-    LEFT JOIN (
+LEFT JOIN (
       SELECT
         billing_id,
         ROUND(SUM(subtotal), 2) AS room_tariff,
-        ROUND(SUM(subtotal * gst_rate), 2) AS room_gst
+        MAX(gst_rate) AS room_gst_rate
       FROM invoices
       WHERE type = 'room'
       GROUP BY billing_id
@@ -237,16 +239,25 @@ router.get("/export/csv", async (req, res) => {
   try {
     const [rows] = await db.query(sql, params);
 
-    const csvRows = rows.map((row) => ({
-      id: row.id,
-      invoiceNo: `INV-${String(row.id).padStart(6, "0")}`,
-      name: row.customer_name || "",
-      guestGstNo: row.gst_number || "",
-      roomDescription: row.room_description || "",
-      hsnCodeHotel: "",
-      tariffPrice: Number(row.tariff_price || 0).toFixed(2),
-      tariffGst: Number(row.tariff_gst || 0).toFixed(2),
-    }));
+    const csvRows = rows.map((row) => {
+      const discountedTariff = Math.max(
+        Number(row.raw_tariff || 0) - Number(row.discount || 0),
+        0,
+      );
+      const discountedGst = Number(
+        (discountedTariff * Number(row.gst_rate || 0)).toFixed(2),
+      );
+      return {
+        id: new Date(row.checkout_date).toLocaleDateString("en-GB"),
+        invoiceNo: `INV-${String(row.id).padStart(6, "0")}`,
+        name: row.customer_name || "",
+        guestGstNo: row.gst_number || "",
+        roomDescription: row.room_description || "",
+        hsnCodeHotel: "",
+        tariffPrice: discountedTariff.toFixed(2),
+        tariffGst: discountedGst.toFixed(2),
+      };
+    });
 
     const totals = csvRows.reduce(
       (sum, row) => ({
@@ -269,7 +280,7 @@ router.get("/export/csv", async (req, res) => {
 
     const parser = new Parser({
       fields: [
-        { label: "ID", value: "id" },
+        { label: "Date", value: "id" },
         { label: "Invoice No.", value: "invoiceNo" },
         { label: "Name", value: "name" },
         { label: "Guest GST No.", value: "guestGstNo" },

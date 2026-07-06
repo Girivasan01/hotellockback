@@ -1,10 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const PUBLIC_PATH = path.join(
-  __dirname,
-  "../../HotelFrontend/frontend/public",
-);
+const PUBLIC_PATH = path.join(__dirname, "../assets");
 
 function toDataUri(filePath) {
   if (!filePath || !fs.existsSync(filePath)) return null;
@@ -47,7 +44,9 @@ function buildInvoicePdfProps(invoiceData) {
   const addOnsTotal = Number(totals.addon_total || 0);
   const subtotal = Number(totals.subtotal || 0);
   const discount = Number(totals.discount || 0);
-  const advancePaid = Number(totals.advance_paid || invoiceData.advance_paid || 0);
+  const advancePaid = Number(
+    totals.advance_paid || invoiceData.advance_paid || 0,
+  );
   const totalAmount = Number(
     totals.grand_total || invoiceData.total_amount || 0,
   );
@@ -83,15 +82,9 @@ function buildInvoicePdfProps(invoiceData) {
     advancePaid,
     balanceAmount,
     guestDiscount: discount,
-    logoPath:
-      resolvePublicAsset("WebaacLogo.png", "FridayInnLogo(hotel).png") ||
-      "/WebaacLogo.png",
-    instagramQrPath:
-      resolvePublicAsset("insta_qr.png", "insta_qr(hotel).jpeg") ||
-      "/insta_qr.png",
-    websiteQrPath:
-      resolvePublicAsset("webaac_qr.png", "hotel_qr(hotel).jpeg") ||
-      "/webaac_qr.png",
+    logoPath: resolvePublicAsset("WebaacLogo.png"),
+    instagramQrPath: resolvePublicAsset("insta_qr.png"),
+    websiteQrPath: resolvePublicAsset("webaac_qr.png"),
   };
 }
 
