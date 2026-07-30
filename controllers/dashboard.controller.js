@@ -48,7 +48,7 @@ exports.getSummary = async (req, res) => {
       [today, orgId],
     );
     const todaysCheckouts = await getSingle(
-      "SELECT COUNT(*) AS cnt FROM bookings WHERE DATE(check_out) = DATE(?) AND org_id = ?",
+      "SELECT COUNT(*) AS cnt FROM bookings WHERE DATE(check_out) = DATE(?) AND status IN ('Confirmed','Checked-in') AND org_id = ?",
       [today, orgId],
     );
     const activeBookings = await getSingle(
@@ -73,7 +73,8 @@ exports.getSummary = async (req, res) => {
     );
 
     // Occupancy rate
-    const occupancyRate = totalRooms.cnt > 0 ? (occupiedRooms.cnt / totalRooms.cnt) * 100 : 0;
+    const occupancyRate =
+      totalRooms.cnt > 0 ? (occupiedRooms.cnt / totalRooms.cnt) * 100 : 0;
 
     // Kitchen status summary
     const kitchenStatusRows = await query(
@@ -84,6 +85,27 @@ exports.getSummary = async (req, res) => {
       acc[cur.status] = cur.count;
       return acc;
     }, {});
+
+    // Storage usage (synced from Vault Sync)
+    let storageRow = null;
+    try {
+      storageRow = await getSingle(
+        "SELECT storage_limit_gb AS limitGb, storage_used_bytes AS usedBytes FROM enterprises WHERE id = ?",
+        [orgId],
+      );
+    } catch (storageErr) {
+      console.error("Storage lookup error:", storageErr);
+    }
+    const storage = {
+      limitGb:
+        storageRow && storageRow.limitGb != null
+          ? Number(storageRow.limitGb)
+          : 0,
+      usedBytes:
+        storageRow && storageRow.usedBytes != null
+          ? Number(storageRow.usedBytes)
+          : 0,
+    };
 
     res.json({
       totalRooms: totalRooms.cnt,
@@ -99,11 +121,10 @@ exports.getSummary = async (req, res) => {
         name: row.name,
         photo: row.photo || null,
         room: row.room,
-        date: row.date
-          ? new Date(row.date).toISOString().slice(0, 10)
-          : "",
+        date: row.date ? new Date(row.date).toISOString().slice(0, 10) : "",
       })),
       kitchenStatus,
+      storage,
     });
   } catch (err) {
     console.error("Dashboard summary error:", err);
@@ -122,7 +143,7 @@ exports.getBookingTrend = async (req, res) => {
          AND DATE(check_in) >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
        GROUP BY DATE(check_in)
        ORDER BY DATE(check_in)`,
-      [req.orgId, Number(days) || 30]
+      [req.orgId, Number(days) || 30],
     );
     res.json(rows);
   } catch (err) {
@@ -161,7 +182,7 @@ exports.getTopMenuItems = async (req, res) => {
        GROUP BY mi.name
        ORDER BY sold DESC
        LIMIT ?`,
-      [req.orgId, limit]
+      [req.orgId, limit],
     );
     res.json(rows);
   } catch (err) {
@@ -196,7 +217,11 @@ exports.getOccupancyRate = async (req, res) => {
       [req.orgId],
     );
     const rate = total.cnt > 0 ? (occupied.cnt / total.cnt) * 100 : 0;
-    res.json({ totalRooms: total.cnt, occupiedRooms: occupied.cnt, occupancyRate: Number(rate.toFixed(2)) });
+    res.json({
+      totalRooms: total.cnt,
+      occupiedRooms: occupied.cnt,
+      occupancyRate: Number(rate.toFixed(2)),
+    });
   } catch (err) {
     console.error("Occupancy rate error:", err);
     res.status(500).json({ error: err.message });

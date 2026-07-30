@@ -3,34 +3,18 @@ const router = express.Router();
 const db = require("../db/database");
 const { requireAuth } = require("../middleware/auth");
 
-// DATETIME HELPERS  (pure string — zero Date() construction)
+// DATETIME HELPERS
 
-/**
- * Safely convert any incoming datetime string to MySQL DATETIME format.
- *
- * Accepts:
- *   "YYYY-MM-DDThh:mm"        → "YYYY-MM-DD hh:mm:00"   (from datetime-local input)
- *   "YYYY-MM-DD HH:mm:ss"     → unchanged                (already DB format)
- *   "YYYY-MM-DD HH:mm"        → "YYYY-MM-DD HH:mm:00"   (DB format, no seconds)
- *
- * Returns null for falsy input.
- * Pure string manipulation — no new Date(), no timezone interpretation.
- */
 const toMySQLDateTime = (value) => {
   if (!value) return null;
-  // Normalise the T separator → space
+ 
   const normalised = value.replace("T", " ").trim();
-  // Ensure seconds are present ("HH:mm" → "HH:mm:00")
-  // A full datetime is at least 16 chars: "YYYY-MM-DD HH:mm"
+
   if (normalised.length === 16) return normalised + ":00";
-  return normalised; // already has seconds
+  return normalised;
 };
 
-/**
- * Compare two MySQL DATETIME strings as strings.
- * Safe because the format "YYYY-MM-DD HH:mm:ss" is lexicographically sortable.
- * Returns true when a < b.
- */
+
 const dtLessThan = (a, b) => {
   if (!a || !b) return false;
   return a < b;
@@ -251,6 +235,15 @@ router.post("/", requireAuth, async (req, res) => {
       req.orgId,
     ]);
 
+    // Whatsapp Notification (respects org auto-send setting; manual resend always available)
+    const { getWhatsappSettings } = require("../utils/whatsappSettings");
+    const bookingWhatsAppService = require("../services/bookingWhatsAppService");
+    getWhatsappSettings(req.orgId).then((settings) => {
+      if (settings.auto_booking_confirmation) {
+        bookingWhatsAppService.sendBookingConfirmationAsync(booking_id, req.orgId);
+      }
+    });
+
     res.status(201).json({
       id: insertResult.insertId,
       booking_id,
@@ -261,6 +254,41 @@ router.post("/", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("Create booking error:", err);
     res.status(500).json({ error: "Create booking failed: " + err.message });
+  }
+});
+
+// POST - SEND / RESEND WHATSAPP BOOKING CONFIRMATION
+router.post("/:id/send-whatsapp", requireAuth, async (req, res) => {
+  const id = req.params.id;
+
+  try {
+    const [rows] = await db.query(
+      "SELECT booking_id FROM bookings WHERE id = ? AND org_id = ?",
+      [id, req.orgId],
+    );
+    if (!rows[0]) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
+
+    const bookingWhatsAppService = require("../services/bookingWhatsAppService");
+    const result = await bookingWhatsAppService.sendBookingConfirmation(
+      rows[0].booking_id,
+      req.orgId,
+    );
+
+    if (result.skipped) {
+      return res.status(503).json({
+        error: result.message || "WhatsApp is not configured",
+        skipped: true,
+      });
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error("❌ SEND BOOKING WHATSAPP FAILED:", error);
+    res.status(400).json({
+      error: error.message || "Failed to send booking confirmation via WhatsApp",
+    });
   }
 });
 
@@ -284,33 +312,12 @@ router.post("/:id/checkout", requireAuth, async (req, res) => {
       });
     }
 
-    const invoiceWhatsAppService = require("../services/invoiceWhatsAppService");
-    const whatsappService = require("../services/whatsappService");
-    const shouldSendWhatsapp = req.body.send_whatsapp !== false;
-    let whatsapp = { skipped: true, message: "WhatsApp is not configured" };
-
-    if (!shouldSendWhatsapp) {
-      whatsapp = {
-        skipped: true,
-        message: "WhatsApp notification declined by staff",
-      };
-    } else if (whatsappService.isConfigured()) {
-      const whatsappResult = await invoiceWhatsAppService.sendInvoice(
-        result.billing_id,
-        req.orgId,
-      );
-      whatsapp = {
-        success: whatsappResult.success,
-        message: whatsappResult.message,
-      };
-    }
     res.json({
       success: true,
       message: "Checkout completed successfully",
       billing_id: result.billing_id,
       idempotency_key: result.idempotency_key,
       summary: result.summary,
-      whatsapp,
     });
   } catch (error) {
     console.error("Checkout processing failed:", error);

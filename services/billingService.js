@@ -7,7 +7,7 @@ const { calculateBillingTotals } = require("../utils/billingCalculator");
  */
 class BillingService {
   /**
-   * Get billing preview (NOT persisted)
+   * Get billing preview
    * Used for checkout modal and bill preview before finalization
    */
   async getBillingPreview(bookingId, orgId) {
@@ -137,6 +137,7 @@ class BillingService {
         b.is_downloaded,
         b.billed_by_name,
         b.billed_by_role,
+        b.payment_status,
         c.name as customer_name,
         c.photo as customer_photo,
         COUNT(i.id) as line_items_count,
@@ -160,6 +161,7 @@ class BillingService {
         b.is_downloaded,
         b.billed_by_name,
         b.billed_by_role,
+        b.payment_status,
         c.name,
         c.photo
       ORDER BY b.created_at DESC

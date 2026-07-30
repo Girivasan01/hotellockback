@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS customers (
     vehicle_no VARCHAR(255),
     dob DATE,
     document VARCHAR(1024),
+    photo VARCHAR(1024),
+    org_id INT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -134,6 +136,7 @@ CREATE TABLE IF NOT EXISTS billings (
     total_amount DECIMAL(10,2) NOT NULL,
     gst_number VARCHAR(255),
     is_downloaded TINYINT(1) DEFAULT 0,
+    payment_status VARCHAR(20) NOT NULL DEFAULT 'unpaid',
     billed_by_id INT,
     billed_by_name VARCHAR(255),
     billed_by_role VARCHAR(255),
@@ -234,5 +237,7 @@ CREATE TABLE IF NOT EXISTS restaurant_orders (
 -- server.js catches ER_DUP_KEYNAME so these are safe on re-runs
 CREATE INDEX idx_billings_booking ON billings(booking_id);
 CREATE INDEX idx_billings_idempotency ON billings(idempotency_key);
+CREATE INDEX idx_billings_payment_status ON billings(payment_status);
+CREATE INDEX idx_customers_org ON customers(org_id);
 CREATE INDEX idx_invoices_billing ON invoices(billing_id);
 CREATE INDEX idx_booking_addons_booking ON booking_addons(booking_id);

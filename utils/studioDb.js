@@ -1,9 +1,3 @@
-/**
- * Reads enterprise subscription/storage from the local hotel DB first
- * (synced by Vault Sync), then falls back to cross-database query on
- * STUDIO_DB_NAME when the vault database is reachable on the same MySQL host.
- */
-
 function getStudioDbName() {
   return process.env.STUDIO_DB_NAME || "studio_admin";
 }

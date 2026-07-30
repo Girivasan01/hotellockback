@@ -3,16 +3,15 @@ const router = express.Router();
 const db = require("../db/database");
 const { Parser } = require("json2csv");
 const billingController = require("../controllers/profitController");
+const { requireAuth, requireAdmin } = require("../middleware/auth");
 
 /* ===============================
    GET TOTAL PROFIT
-   URL: /api/billings/profit
 ================================ */
 router.get("/profit", billingController.getProfit);
 
 /* ===============================
    GET ALL BILLS
-   URL: /api/billings
 ================================ */
 const billingService = require("../services/billingService");
 
@@ -35,9 +34,6 @@ router.get("/", async (req, res) => {
 
 /* ===============================
    GET BILLING PREVIEW (for checkout)
-   URL: /api/billings/preview/:bookingId
-   Returns full billing calculation with room + addons + kitchen
-   WITHOUT persisting anything
 ================================ */
 router.get("/preview/:bookingId", async (req, res) => {
   const { bookingId } = req.params;
@@ -59,7 +55,6 @@ router.get("/preview/:bookingId", async (req, res) => {
 
 /* ===============================
    GET INVOICE PDF
-   URL: /api/billings/:id/pdf
 ================================ */
 router.get("/:id/pdf", async (req, res) => {
   const billId = req.params.id;
@@ -78,7 +73,8 @@ router.get("/:id/pdf", async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(pdfBuffer);
   } catch (error) {
-    console.error("❌ INVOICE PDF FAILED:", error);
+    console.error("❌ INVOICE PDF FAILED:", error.message);
+    console.error(error.stack);
     if (error.message === "Billing not found") {
       return res.status(404).json({ error: "Bill not found" });
     }
@@ -90,7 +86,6 @@ router.get("/:id/pdf", async (req, res) => {
 
 /* ===============================
    GET SINGLE BILL + DETAILS
-   URL: /api/billings/:id
 ================================ */
 router.get("/:id", async (req, res) => {
   const billId = req.params.id;
@@ -110,7 +105,6 @@ router.get("/:id", async (req, res) => {
 
 /* ===============================
    DELETE BILL
-   URL: /api/billings/:id
 ================================ */
 router.delete("/:id", async (req, res) => {
   const billId = req.params.id;
@@ -133,7 +127,6 @@ router.delete("/:id", async (req, res) => {
 
 /* ===============================
    MARK BILL AS DOWNLOADED
-   URL: PATCH /api/billings/:id/downloaded
 ================================ */
 router.post("/:id/send-whatsapp", async (req, res) => {
   const billId = req.params.id;
@@ -187,7 +180,64 @@ router.patch("/:id/downloaded", async (req, res) => {
   }
 });
 
-router.get("/export/csv", async (req, res) => {
+/* ===============================
+   MARK BILL AS PAID / NOT PAID
+================================ */
+router.patch("/:id/payment-status", async (req, res) => {
+  const billId = req.params.id;
+  const { status } = req.body;
+
+  if (status !== "paid" && status !== "unpaid") {
+    return res.status(400).json({ error: "status must be 'paid' or 'unpaid'" });
+  }
+
+  try {
+    const [existingRows] = await db.query(
+      "SELECT payment_status FROM billings WHERE id = ? AND org_id = ?",
+      [billId, req.orgId],
+    );
+
+    if (existingRows.length === 0) {
+      return res.status(404).json({ error: "Bill not found" });
+    }
+
+    if (existingRows[0].payment_status === "paid" && status === "unpaid") {
+      return res.status(400).json({
+        error: "A bill already marked as paid cannot be reverted to unpaid",
+      });
+    }
+
+    const [result] = await db.query(
+      "UPDATE billings SET payment_status = ? WHERE id = ? AND org_id = ?",
+      [status, billId, req.orgId],
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "Bill not found" });
+    }
+
+    // Whatsapp Notification (respects org auto-send setting; manual resend always available)
+    if (status === "paid") {
+      const { getWhatsappSettings } = require("../utils/whatsappSettings");
+      const invoiceWhatsAppService = require("../services/invoiceWhatsAppService");
+      getWhatsappSettings(req.orgId).then((settings) => {
+        if (settings.auto_bill_payment) {
+          invoiceWhatsAppService.sendInvoiceAsync(billId, req.orgId);
+        }
+      });
+    }
+
+    res.json({ message: `Bill marked as ${status}`, payment_status: status });
+  } catch (err) {
+    console.error("❌ UPDATE PAYMENT STATUS FAILED:", err);
+    res.status(500).json({ error: "Failed to update payment status" });
+  }
+});
+
+/* ===============================
+   EXPORT CSV (ADMIN ONLY)
+================================ */
+router.get("/export/csv", requireAuth, requireAdmin, async (req, res) => {
   const { startDate, endDate } = req.query;
   const where = ["b.org_id = ?"];
   const params = [req.orgId];

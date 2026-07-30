@@ -1,11 +1,17 @@
 jest.mock("../../services/dbService", () => ({
   get: jest.fn(),
+  all: jest.fn(),
   getKitchenBillingSummary: jest.fn(),
   getBookingAddons: jest.fn(),
   run: jest.fn(),
 }));
 
+jest.mock("../../services/invoiceService", () => ({
+  getInvoiceData: jest.fn(),
+}));
+
 const dbService = require("../../services/dbService");
+const invoiceService = require("../../services/invoiceService");
 const billingService = require("../../services/billingService");
 
 describe("billingService", () => {
@@ -43,7 +49,9 @@ describe("billingService", () => {
 
     it("returns a full billing preview with totals for checkout modal", async () => {
       dbService.get.mockResolvedValue(bookingRow);
-      dbService.getKitchenBillingSummary.mockResolvedValue({ kitchenTotal: 350 });
+      dbService.getKitchenBillingSummary.mockResolvedValue({
+        kitchenTotal: 350,
+      });
       dbService.getBookingAddons.mockResolvedValue([
         { id: 1, name: "Breakfast", price: 150 },
       ]);
@@ -86,6 +94,85 @@ describe("billingService", () => {
     });
   });
 
+  describe("getBillings", () => {
+    it("filters out downloaded billings by default and scopes by org", async () => {
+      dbService.all.mockResolvedValue([]);
+      dbService.get.mockResolvedValue({ count: 0 });
+
+      await billingService.getBillings({ orgId });
+
+      expect(dbService.all).toHaveBeenCalledWith(
+        expect.stringContaining("COALESCE(b.is_downloaded, 0) = 0"),
+        [orgId, 50, 0],
+      );
+      expect(dbService.get).toHaveBeenCalledWith(
+        expect.stringContaining("WHERE b.org_id = ?"),
+        [orgId],
+      );
+    });
+
+    it("includes downloaded billings when includeDownloaded is true", async () => {
+      dbService.all.mockResolvedValue([]);
+      dbService.get.mockResolvedValue({ count: 0 });
+
+      await billingService.getBillings({ orgId, includeDownloaded: true });
+
+      expect(dbService.all).toHaveBeenCalledWith(
+        expect.not.stringContaining("COALESCE(b.is_downloaded, 0) = 0"),
+        [orgId, 50, 0],
+      );
+    });
+
+    it("applies search filter across booking id, customer name and gst number", async () => {
+      dbService.all.mockResolvedValue([]);
+      dbService.get.mockResolvedValue({ count: 0 });
+
+      await billingService.getBillings({ orgId, search: "BK-1" });
+
+      expect(dbService.all).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "(b.booking_id LIKE ? OR c.name LIKE ? OR b.gst_number LIKE ?)",
+        ),
+        [orgId, "%BK-1%", "%BK-1%", "%BK-1%", 50, 0],
+      );
+    });
+
+    it("paginates results and returns page metadata", async () => {
+      dbService.all.mockResolvedValue([{ id: 1 }]);
+      dbService.get.mockResolvedValue({ count: 12 });
+
+      const result = await billingService.getBillings({
+        orgId,
+        page: 2,
+        limit: 5,
+      });
+
+      expect(dbService.all).toHaveBeenCalledWith(expect.any(String), [
+        orgId,
+        5,
+        5,
+      ]);
+      expect(result.billings).toHaveLength(1);
+      expect(result.pagination).toEqual({
+        page: 2,
+        limit: 5,
+        total: 12,
+        pages: 3,
+      });
+    });
+  });
+
+  describe("getBillingDetails", () => {
+    it("delegates to invoiceService.getInvoiceData with billingId and orgId", async () => {
+      invoiceService.getInvoiceData.mockResolvedValue({ id: 7 });
+
+      const result = await billingService.getBillingDetails(7, orgId);
+
+      expect(invoiceService.getInvoiceData).toHaveBeenCalledWith(7, orgId);
+      expect(result).toEqual({ id: 7 });
+    });
+  });
+
   describe("markDownloaded", () => {
     it("updates billing download status scoped to organization", async () => {
       dbService.run.mockResolvedValue({ changes: 1 });
@@ -96,6 +183,63 @@ describe("billingService", () => {
         "UPDATE billings SET is_downloaded = 1, gst_number = ? WHERE id = ? AND org_id = ?",
         ["33AMQPK7880E2ZO", 15, orgId],
       );
+    });
+  });
+
+  describe("getProfitSummary", () => {
+    it("returns totals scoped to org without a date range", async () => {
+      dbService.get.mockResolvedValue({
+        total_bills: 4,
+        revenue: 8000,
+        avg_bill: 2000,
+        total_advance: 1200,
+      });
+
+      const result = await billingService.getProfitSummary({ orgId });
+
+      expect(dbService.get).toHaveBeenCalledWith(
+        expect.not.stringContaining("BETWEEN"),
+        [orgId],
+      );
+      expect(result).toEqual({
+        total_bills: 4,
+        revenue: 8000,
+        avg_bill: 2000,
+        total_advance: 1200,
+      });
+    });
+
+    it("applies a date range filter when startDate and endDate are provided", async () => {
+      dbService.get.mockResolvedValue({
+        total_bills: 2,
+        revenue: 4000,
+        avg_bill: 2000,
+        total_advance: 500,
+      });
+
+      await billingService.getProfitSummary({
+        orgId,
+        startDate: "2026-06-01",
+        endDate: "2026-06-30",
+      });
+
+      expect(dbService.get).toHaveBeenCalledWith(
+        expect.stringContaining("DATE(b.created_at) BETWEEN ? AND ?"),
+        [orgId, "2026-06-01", "2026-06-30"],
+      );
+    });
+
+    it("falls back to zeroed summary when no rows are returned", async () => {
+      dbService.get.mockResolvedValue(null);
+
+      const result = await billingService.getProfitSummary({ orgId });
+
+      expect(result).toEqual({
+        total_bills: 0,
+        revenue: 0,
+        avg_bill: 0,
+        total_advance: 0,
+      });
     });
   });
 });

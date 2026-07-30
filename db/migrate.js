@@ -73,6 +73,14 @@ const migrations = [
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   `ALTER TABLE enterprises ADD COLUMN storage_limit_gb DECIMAL(10,2) DEFAULT 0`,
   `ALTER TABLE enterprises ADD COLUMN storage_used_bytes BIGINT DEFAULT 0`,
+
+  // ── WhatsApp: per-org auto-send toggles (manual send always available) ──
+  `CREATE TABLE IF NOT EXISTS whatsapp_settings (
+    org_id INT NOT NULL PRIMARY KEY,
+    auto_booking_confirmation TINYINT(1) NOT NULL DEFAULT 1,
+    auto_bill_payment TINYINT(1) NOT NULL DEFAULT 1,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 ];
 
 async function columnExists(tableName, columnName) {

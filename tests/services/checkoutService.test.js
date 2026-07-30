@@ -198,4 +198,83 @@ describe("checkoutService", () => {
     expect(result.summary.discount).toBe(200);
     expect(result.summary.finalAmount).toBe(840);
   });
+
+  it("overrides an existing booking discount with an explicit 0", async () => {
+    dbService.idempotencyExists.mockResolvedValue(false);
+    dbService.getBookingWithDetails.mockResolvedValue({
+      booking_id: 10,
+      status: "Checked-in",
+      check_in: "2026-06-01 14:00:00",
+      check_out: "2026-06-02 11:00:00",
+      price: 1000,
+      kitchenTotal: 0,
+      discount: 150,
+      advance_paid: 0,
+      customer_id: 1,
+      room_id: 2,
+      room_number: "104",
+      category: "Standard",
+    });
+    dbService.getBookingAddons.mockResolvedValue([]);
+    dbService.transaction.mockImplementation(async (callback) => {
+      const tx = {
+        run: jest.fn().mockResolvedValue({ lastID: 92 }),
+        getKitchenOrdersForInvoice: jest.fn().mockResolvedValue([]),
+        getBookingAddons: jest.fn().mockResolvedValue([]),
+      };
+      return callback(tx);
+    });
+
+    const result = await checkoutService.processCheckout(
+      10,
+      { discount: 0 },
+      user,
+      orgId,
+    );
+
+    expect(result.summary.discount).toBe(0);
+  });
+
+  it("logs a warning but still succeeds when provided total_amount mismatches calculated total", async () => {
+    dbService.idempotencyExists.mockResolvedValue(false);
+    dbService.getBookingWithDetails.mockResolvedValue({
+      booking_id: 11,
+      status: "Checked-in",
+      check_in: "2026-06-01 14:00:00",
+      check_out: "2026-06-02 11:00:00",
+      price: 1000,
+      kitchenTotal: 0,
+      discount: 0,
+      advance_paid: 0,
+      customer_id: 1,
+      room_id: 2,
+      room_number: "105",
+      category: "Standard",
+    });
+    dbService.getBookingAddons.mockResolvedValue([]);
+    dbService.transaction.mockImplementation(async (callback) => {
+      const tx = {
+        run: jest.fn().mockResolvedValue({ lastID: 93 }),
+        getKitchenOrdersForInvoice: jest.fn().mockResolvedValue([]),
+        getBookingAddons: jest.fn().mockResolvedValue([]),
+      };
+      return callback(tx);
+    });
+
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await checkoutService.processCheckout(
+      11,
+      { total_amount: 99999 },
+      user,
+      orgId,
+    );
+
+    expect(result.success).toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Total mismatch (IGNORED)"),
+    );
+
+    warnSpy.mockRestore();
+  });
 });

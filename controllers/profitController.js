@@ -24,6 +24,7 @@ exports.getProfit = (req, res) => {
         COALESCE(SUM(total_amount), 0) AS profit
       FROM billings
       WHERE org_id = ?
+      AND payment_status = 'paid'
       ${dateFilter}
     `;
 

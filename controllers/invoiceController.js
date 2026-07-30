@@ -115,7 +115,7 @@ exports.generateInvoicePDF = async (req, res) => {
       .fontSize(20)
       .font("Helvetica-Bold")
       .fillColor("#333333")
-      .text("Webaac Hotel CRM", 130, 40);
+      .text("Hotel Friday Inn", 130, 40);
 
     doc
       .fontSize(10)
@@ -526,7 +526,7 @@ exports.generateInvoicePDF = async (req, res) => {
       .fontSize(8)
       .font("Helvetica")
       .fillColor("#999999")
-      .text("Thank you for choosing Webaac Hotel CRM!", 40, footerY);
+      .text("Thank you for choosing Hotel Friday Inn!", 40, footerY);
 
     // Hotel Info
     doc

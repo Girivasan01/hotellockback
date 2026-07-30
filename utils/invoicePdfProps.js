@@ -82,9 +82,9 @@ function buildInvoicePdfProps(invoiceData) {
     advancePaid,
     balanceAmount,
     guestDiscount: discount,
-    logoPath: resolvePublicAsset("WebaacLogo.png"),
-    instagramQrPath: resolvePublicAsset("insta_qr.png"),
-    websiteQrPath: resolvePublicAsset("webaac_qr.png"),
+    logoPath: resolvePublicAsset("FridayInnLogo.png"),
+    instagramQrPath: resolvePublicAsset("insta_qr.jpeg"),
+    websiteQrPath: resolvePublicAsset("hotel_qr.jpeg"),
   };
 }
 

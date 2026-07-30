@@ -23,8 +23,8 @@ class InvoiceWhatsAppService {
     const filename = `Invoice_${invoiceData.booking_id}_${(invoiceData.customer_name || "Guest").replace(/\s+/g, "_")}.pdf`;
     const caption = [
       `Dear ${invoiceData.customer_name || "Guest"},`,
-      "", 
-      "Thank you for staying with Webaac Hotel CRM.",
+      "",
+      "Thank you for staying with Hotel Friday Inn.",
       `Your invoice for booking ${invoiceData.booking_id} is attached.`,
       `Total: Rs ${Number(invoiceData.totals?.grand_total || invoiceData.total_amount || 0).toFixed(2)}`,
     ].join("\n");

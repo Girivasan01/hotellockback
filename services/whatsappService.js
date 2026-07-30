@@ -1,9 +1,11 @@
 const { normalizeWhatsAppNumber } = require("../utils/phoneUtils");
+const { WHATSAPP_ENABLED } = require("../config/features");
 
 const API_VERSION = process.env.WHATSAPP_API_VERSION || "v21.0";
 
 class WhatsAppService {
   isConfigured() {
+    if (!WHATSAPP_ENABLED) return false;
     if (process.env.WHATSAPP_ENABLED === "false") return false;
     return Boolean(
       process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID,
@@ -70,6 +72,41 @@ class WhatsAppService {
     }
 
     return payload;
+  }
+
+  async sendText({ phone, message }) {
+    if (!this.isConfigured()) {
+      return { skipped: true, reason: "WhatsApp is not configured" };
+    }
+
+    const to = normalizeWhatsAppNumber(phone);
+    if (!to) {
+      throw new Error("Customer phone number is missing or invalid");
+    }
+
+    const response = await fetch(`${this.getApiBase()}/messages`, {
+      method: "POST",
+      headers: {
+        ...this.getHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "text",
+        text: { body: message },
+      }),
+    });
+
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(
+        payload?.error?.message || "Failed to send WhatsApp message",
+      );
+    }
+
+    return { skipped: false, to, result: payload };
   }
 
   async sendInvoicePdf({ phone, pdfBuffer, filename, caption }) {

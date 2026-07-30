@@ -11,32 +11,37 @@ import {
 
 const BORDER_COLOR = "#000000";
 
-const INSTAGRAM_QR_PATH = "/insta_qr.png";
-const WEBSITE_QR_PATH = "/webaac_qr.png";
+const INSTAGRAM_QR_PATH = "/insta_qr.jpeg";
+const WEBSITE_QR_PATH = "/hotel_qr.jpeg";
 
 const path = require("path");
+
+const FONT_DIR = path.join(
+  __dirname,
+  "../../node_modules/@fontsource/poppins/files",
+);
 
 Font.register({
   family: "Poppins",
   fonts: [
     {
-      src: "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/poppins/Poppins-Regular.ttf",
+      src: path.join(FONT_DIR, "poppins-latin-400-normal.woff"),
       fontWeight: 400,
     },
     {
-      src: "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/poppins/Poppins-Medium.ttf",
+      src: path.join(FONT_DIR, "poppins-latin-500-normal.woff"),
       fontWeight: 500,
     },
     {
-      src: "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/poppins/Poppins-SemiBold.ttf",
+      src: path.join(FONT_DIR, "poppins-latin-600-normal.woff"),
       fontWeight: 600,
     },
     {
-      src: "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/poppins/Poppins-Bold.ttf",
+      src: path.join(FONT_DIR, "poppins-latin-700-normal.woff"),
       fontWeight: 700,
     },
     {
-      src: "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/poppins/Poppins-Italic.ttf",
+      src: path.join(FONT_DIR, "poppins-latin-400-italic.woff"),
       fontStyle: "italic",
       fontWeight: 400,
     },
@@ -299,9 +304,9 @@ export const HotelInvoiceDocument = ({
   guestDiscount,
   gstNumber,
   formatIST,
-  logoPath = path.join(__dirname, "../../assets/WebaacLogo.png"),
-  instagramQrPath = path.join(__dirname, "../../assets/insta_qr.png"),
-  websiteQrPath = path.join(__dirname, "../../assets/webaac_qr.png"),
+  logoPath = path.join(__dirname, "../../assets/FridayInnLogo.png"),
+  instagramQrPath = path.join(__dirname, "../../assets/insta_qr.jpeg"),
+  websiteQrPath = path.join(__dirname, "../../assets/hotel_qr.jpeg"),
 }) => {
   const monthNames = [
     "Jan",
@@ -460,16 +465,22 @@ export const HotelInvoiceDocument = ({
             <Image style={styles.logo} src={logoPath} />
 
             <View style={styles.headerTextContainer}>
-              <Text style={styles.hotelName}>Webaac Hotel CRM</Text>
-              <Text style={styles.address}>Vellore, Tamil Nadu, India</Text>
-              <Text style={styles.contact}>Call: +91 9025348397</Text>
-              <Text style={styles.contact}>Email:hello@webaac.in</Text>
-              {/* <Text style={styles.gstBanner}>
+              <Text style={styles.hotelName}>Hotel Friday Inn</Text>
+              <Text style={styles.address}>
+                D.NO 307 ASAMBUR TO MANJAKUTTAI ROAD,{"\n"}
+                ASAMBUR VILLAGE, YERCAUD - 636602,{"\n"}
+                TAMIL NADU, INDIA.
+              </Text>
+              <Text style={styles.contact}>
+                Call: +91 6369469094 | +91 9489690022 | 04281-290001.
+              </Text>
+              {/* <Text style={styles.contact}>Email:hello@webaac.in</Text> */}
+              <Text style={styles.gstBanner}>
                 GST NO:{" "}
                 {selectedBill?.category === "A frame wooden villa AC"
                   ? "33AMQPK7880E2ZO"
                   : "33AMQPK7880E1ZP"}
-              </Text> */}
+              </Text>
             </View>
           </View>
           <View style={styles.headerRight}>
