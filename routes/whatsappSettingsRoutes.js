@@ -8,7 +8,7 @@ const {
 
 router.get("/", requireAuth, async (req, res) => {
   try {
-    const settings = await getWhatsappSettings(req.orgId);
+    const settings = await getWhatsappSettings(req.user.org_id);
     res.json(settings);
   } catch (err) {
     console.error("GET WHATSAPP SETTINGS ERROR:", err);
@@ -19,7 +19,7 @@ router.get("/", requireAuth, async (req, res) => {
 router.put("/", requireAuth, async (req, res) => {
   try {
     const { auto_booking_confirmation, auto_bill_payment } = req.body;
-    const settings = await upsertWhatsappSettings(req.orgId, {
+    const settings = await upsertWhatsappSettings(req.user.org_id, {
       auto_booking_confirmation: Boolean(auto_booking_confirmation),
       auto_bill_payment: Boolean(auto_bill_payment),
     });
