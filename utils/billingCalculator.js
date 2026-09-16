@@ -85,8 +85,9 @@ const calculateBillingTotals = ({
     roomGst.amount + kitchenGst.amount + addonGst.amount,
   );
   const totalAmount = roundMoney(subtotal + gstAmount);
-  const finalPayable = roundMoney(
-    totalAmount - resolvedDiscount - resolvedAdvancePaid,
+  const finalPayable = Math.max(
+    0,
+    roundMoney(totalAmount - resolvedDiscount - resolvedAdvancePaid),
   );
 
   return {
