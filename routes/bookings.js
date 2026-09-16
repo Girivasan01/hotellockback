@@ -2,18 +2,46 @@ const express = require("express");
 const router = express.Router();
 const db = require("../db/database");
 const { requireAuth } = require("../middleware/auth");
+const { daysBetween } = require("../utils/billingCalculator");
+
+// Recomputes a room's status from its remaining active bookings instead of
+// blindly forcing a status, so a room isn't left "Booked/Occupied" with no
+// booking behind it, and isn't freed while another booking still needs it.
+async function syncRoomStatus(roomId, orgId) {
+  if (!roomId) return;
+
+  const [rows] = await db.query(
+    `SELECT status FROM bookings
+     WHERE room_id = ? AND org_id = ? AND status IN ('Confirmed', 'Checked-in')`,
+    [roomId, orgId],
+  );
+
+  if (rows.length === 0) {
+    await db.query(
+      "UPDATE rooms SET status = 'Available' WHERE id = ? AND org_id = ?",
+      [roomId, orgId],
+    );
+    return;
+  }
+
+  const hasCheckedIn = rows.some((b) => b.status === "Checked-in");
+  await db.query("UPDATE rooms SET status = ? WHERE id = ? AND org_id = ?", [
+    hasCheckedIn ? "Occupied" : "Booked",
+    roomId,
+    orgId,
+  ]);
+}
 
 // DATETIME HELPERS
 
 const toMySQLDateTime = (value) => {
   if (!value) return null;
- 
+
   const normalised = value.replace("T", " ").trim();
 
   if (normalised.length === 16) return normalised + ":00";
   return normalised;
 };
-
 
 const dtLessThan = (a, b) => {
   if (!a || !b) return false;
@@ -62,7 +90,6 @@ router.get("/calendar", requireAuth, async (req, res) => {
       ORDER BY b.check_in ASC
     `;
     const [rows] = await db.query(query, [req.orgId]);
-    // Return raw DB strings — no Date() construction, no serialisation shift
     res.json(rows);
   } catch (err) {
     console.error("Calendar fetch error:", err);
@@ -138,6 +165,28 @@ router.post("/", requireAuth, async (req, res) => {
         .json({ error: "Check-out must be after check-in" });
     }
 
+    // ── Discount / advance validation ──────────
+    const discountValue = Number(discount) || 0;
+    const stayDaysEstimate = daysBetween(checkInStr, checkOutStr);
+    const roomTotalEstimate = price * stayDaysEstimate;
+
+    if (discountValue < 0) {
+      return res.status(400).json({ error: "Discount cannot be negative" });
+    }
+    if (advance_paid < 0) {
+      return res.status(400).json({ error: "Advance paid cannot be negative" });
+    }
+    if (discountValue > roomTotalEstimate) {
+      return res.status(400).json({
+        error: `Discount (₹${discountValue}) cannot exceed the room total (₹${roomTotalEstimate})`,
+      });
+    }
+    if (advance_paid > roomTotalEstimate) {
+      return res.status(400).json({
+        error: `Advance paid (₹${advance_paid}) cannot exceed the room total (₹${roomTotalEstimate})`,
+      });
+    }
+
     const created_by_id = req.user.id;
     const created_by_role = req.user.role;
     let created_by_name = null;
@@ -167,6 +216,16 @@ router.post("/", requireAuth, async (req, res) => {
       return res.status(400).json({ error: "Invalid room selected" });
     }
 
+    // ── Capacity check ────────
+    if (
+      roomRows[0].capacity != null &&
+      people_count > Number(roomRows[0].capacity)
+    ) {
+      return res.status(400).json({
+        error: `Room capacity (${roomRows[0].capacity}) is less than the number of guests (${people_count})`,
+      });
+    }
+
     // ── Availability check ────────
     const [availabilityRows] = await db.query(
       `SELECT COUNT(*) AS conflictCount
@@ -174,8 +233,8 @@ router.post("/", requireAuth, async (req, res) => {
        WHERE room_id = ?
          AND org_id = ?
          AND status IN ('Confirmed', 'Checked-in')
-         AND check_in  < ?
-         AND (check_out IS NULL OR check_out > ?)`,
+         AND DATE(check_in) < DATE(?)
+         AND (check_out IS NULL OR DATE(check_out) > DATE(?))`,
       [room_id, req.orgId, checkOutStr || checkInStr, checkInStr],
     );
 
@@ -235,12 +294,15 @@ router.post("/", requireAuth, async (req, res) => {
       req.orgId,
     ]);
 
-    // Whatsapp Notification (respects org auto-send setting; manual resend always available)
+    // Whatsapp Notification
     const { getWhatsappSettings } = require("../utils/whatsappSettings");
     const bookingWhatsAppService = require("../services/bookingWhatsAppService");
     getWhatsappSettings(req.orgId).then((settings) => {
       if (settings.auto_booking_confirmation) {
-        bookingWhatsAppService.sendBookingConfirmationAsync(booking_id, req.orgId);
+        bookingWhatsAppService.sendBookingConfirmationAsync(
+          booking_id,
+          req.orgId,
+        );
       }
     });
 
@@ -287,7 +349,8 @@ router.post("/:id/send-whatsapp", requireAuth, async (req, res) => {
   } catch (error) {
     console.error("❌ SEND BOOKING WHATSAPP FAILED:", error);
     res.status(400).json({
-      error: error.message || "Failed to send booking confirmation via WhatsApp",
+      error:
+        error.message || "Failed to send booking confirmation via WhatsApp",
     });
   }
 });
@@ -379,6 +442,79 @@ router.put("/:id", requireAuth, async (req, res) => {
     const current = currentRows[0];
     if (!current) return res.status(404).json({ error: "Booking not found" });
 
+    // ── Status transition validation ──────────
+    // "Checked-out" is only ever set through the dedicated /checkout flow,
+    // never through this generic update endpoint.
+    const ALLOWED_STATUS_TRANSITIONS = {
+      Confirmed: ["Checked-in", "Cancelled"],
+      Cancelled: ["Confirmed"],
+      "Checked-in": ["Cancelled"],
+      "Checked-out": [],
+    };
+
+    if (status !== undefined && status !== current.status) {
+      const allowedNext = ALLOWED_STATUS_TRANSITIONS[current.status] || [];
+      if (!allowedNext.includes(status)) {
+        return res.status(400).json({
+          error: `Cannot change booking status from "${current.status}" to "${status}"`,
+        });
+      }
+    }
+
+    // ── Block check-in while the room still has another guest checked in ──
+    if (status === "Checked-in" && current.status !== "Checked-in") {
+      const targetRoomIdForOccupancy =
+        room_id !== undefined ? Number(room_id) : current.room_id;
+      const [occupiedRows] = await db.query(
+        `SELECT COUNT(*) AS cnt FROM bookings
+         WHERE room_id = ? AND org_id = ? AND status = 'Checked-in' AND id != ?`,
+        [targetRoomIdForOccupancy, req.orgId, bookingId],
+      );
+      if ((occupiedRows[0]?.cnt || 0) > 0) {
+        return res.status(409).json({
+          error:
+            "This room still has a guest checked in. Please check them out before checking in a new customer.",
+        });
+      }
+    }
+
+    // ── Discount / advance validation ──────────
+    const effectivePrice =
+      price !== undefined ? Number(price) : Number(current.price || 0);
+    const effectiveCheckInForValidation =
+      check_in !== undefined ? toMySQLDateTime(check_in) : current.check_in;
+    const effectiveCheckOutForValidation =
+      check_out !== undefined ? toMySQLDateTime(check_out) : current.check_out;
+    const effectiveDiscount =
+      discount !== undefined ? Number(discount) : Number(current.discount || 0);
+    const effectiveAdvancePaid =
+      advance_paid !== undefined
+        ? Number(advance_paid)
+        : Number(current.advance_paid || 0);
+
+    const stayDaysEstimate = daysBetween(
+      effectiveCheckInForValidation,
+      effectiveCheckOutForValidation,
+    );
+    const roomTotalEstimate = effectivePrice * stayDaysEstimate;
+
+    if (effectiveDiscount < 0) {
+      return res.status(400).json({ error: "Discount cannot be negative" });
+    }
+    if (effectiveAdvancePaid < 0) {
+      return res.status(400).json({ error: "Advance paid cannot be negative" });
+    }
+    if (effectiveDiscount > roomTotalEstimate) {
+      return res.status(400).json({
+        error: `Discount (₹${effectiveDiscount}) cannot exceed the room total (₹${roomTotalEstimate})`,
+      });
+    }
+    if (effectiveAdvancePaid > roomTotalEstimate) {
+      return res.status(400).json({
+        error: `Advance paid (₹${effectiveAdvancePaid}) cannot exceed the room total (₹${roomTotalEstimate})`,
+      });
+    }
+
     // 2. Prepare update fields
     let updateFields = [];
     let params = [];
@@ -430,6 +566,26 @@ router.put("/:id", requireAuth, async (req, res) => {
     const effectiveCheckOut =
       check_out !== undefined ? toMySQLDateTime(check_out) : current.check_out;
 
+    // ── Capacity check when the room or the guest count changes ──────
+    if (room_id !== undefined || people_count !== undefined) {
+      const effectivePeopleCount =
+        people_count !== undefined
+          ? Number(people_count)
+          : Number(current.people_count || 1);
+
+      const [roomForCapacityRows] = await db.query(
+        "SELECT capacity FROM rooms WHERE id = ? AND org_id = ?",
+        [effectiveRoomId, req.orgId],
+      );
+      const roomCapacity = roomForCapacityRows[0]?.capacity;
+
+      if (roomCapacity != null && effectivePeopleCount > Number(roomCapacity)) {
+        return res.status(400).json({
+          error: `Room capacity (${roomCapacity}) is less than the number of guests (${effectivePeopleCount})`,
+        });
+      }
+    }
+
     if (
       room_id !== undefined ||
       check_in !== undefined ||
@@ -442,8 +598,8 @@ router.put("/:id", requireAuth, async (req, res) => {
            AND org_id = ?
            AND id != ?
            AND status IN ('Confirmed', 'Checked-in')
-           AND check_in  < ?
-           AND (check_out IS NULL OR check_out > ?)`,
+           AND DATE(check_in) < DATE(?)
+           AND (check_out IS NULL OR DATE(check_out) > DATE(?))`,
         [
           effectiveRoomId,
           req.orgId,
@@ -490,27 +646,28 @@ router.put("/:id", requireAuth, async (req, res) => {
 
     // 6. Update room status if status or room_id changed
     const finalStatus = status || current.status;
-    const roomStatus =
-      finalStatus === "Checked-in"
-        ? "Occupied"
-        : finalStatus === "Checked-out"
-          ? "Available"
-          : finalStatus === "Cancelled"
-            ? "Available"
-            : "Booked";
 
-    // If room changed, make old room available
+    // If room changed, correctly resolve the old room's status instead of
+    // always freeing it (another booking may still need it).
     if (room_id && Number(room_id) !== current.room_id) {
+      await syncRoomStatus(current.room_id, req.orgId);
+    }
+
+    if (finalStatus === "Cancelled") {
+      // Don't blindly free the room - another booking may still need it.
+      await syncRoomStatus(effectiveRoomId, req.orgId);
+    } else {
+      const roomStatus =
+        finalStatus === "Checked-in"
+          ? "Occupied"
+          : finalStatus === "Checked-out"
+            ? "Cleaning"
+            : "Booked";
       await db.query(
-        "UPDATE rooms SET status = 'Available' WHERE id = ? AND org_id = ?",
-        [current.room_id, req.orgId],
+        "UPDATE rooms SET status = ? WHERE id = ? AND org_id = ?",
+        [roomStatus, effectiveRoomId, req.orgId],
       );
     }
-    await db.query("UPDATE rooms SET status = ? WHERE id = ? AND org_id = ?", [
-      roomStatus,
-      effectiveRoomId,
-      req.orgId,
-    ]);
 
     res.json({ message: "Booking updated effectively" });
   } catch (err) {
@@ -522,6 +679,15 @@ router.put("/:id", requireAuth, async (req, res) => {
 // DELETE - BOOKING
 router.delete("/:id", requireAuth, async (req, res) => {
   try {
+    const [existingRows] = await db.query(
+      "SELECT room_id FROM bookings WHERE id = ? AND org_id = ?",
+      [req.params.id, req.orgId],
+    );
+    const existing = existingRows[0];
+    if (!existing) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
+
     const [result] = await db.query(
       "DELETE FROM bookings WHERE id = ? AND org_id = ?",
       [req.params.id, req.orgId],
@@ -529,6 +695,9 @@ router.delete("/:id", requireAuth, async (req, res) => {
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: "Booking not found" });
     }
+
+    await syncRoomStatus(existing.room_id, req.orgId);
+
     res.json({ message: "Booking deleted" });
   } catch (err) {
     console.error("Delete booking error:", err);
