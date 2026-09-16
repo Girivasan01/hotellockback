@@ -100,7 +100,7 @@ exports.generateInvoicePDF = async (req, res) => {
     // Add Logo
     const logoPath = path.join(
       __dirname,
-      "../../HotelFrontend/frontend/public/FridayInnLogo.png",
+      "../../HotelFrontend/frontend/public/Webaac.png",
     );
     if (fs.existsSync(logoPath)) {
       try {
@@ -115,7 +115,7 @@ exports.generateInvoicePDF = async (req, res) => {
       .fontSize(20)
       .font("Helvetica-Bold")
       .fillColor("#333333")
-      .text("Hotel Friday Inn", 130, 40);
+      .text("Webaac Hotel CRM", 130, 40);
 
     doc
       .fontSize(10)
@@ -526,31 +526,41 @@ exports.generateInvoicePDF = async (req, res) => {
       .fontSize(8)
       .font("Helvetica")
       .fillColor("#999999")
-      .text("Thank you for choosing Hotel Friday Inn!", 40, footerY);
+      .text("Thank you for choosing Webaac Hotel CRM!", 40, footerY);
 
     // Hotel Info
+    // Old Friday Inn footer details, commented out:
+    // doc
+    //   .fontSize(8)
+    //   .fillColor("#666666")
+    //   .text(
+    //     "Address: D.NO 307, Asambur Road, Yercaud - 636602",
+    //     40,
+    //     footerY + 15,
+    //   );
+    //
+    // doc
+    //   .fontSize(8)
+    //   .text(
+    //     "Phone: +91 9489690022 | Email: reservation@fridayinnyercaud.com",
+    //     40,
+    //     footerY + 25,
+    //   );
+    //
+    // doc
+    //   .fontSize(7)
+    //   .font("Helvetica-Bold")
+    //   .fillColor("#999999")
+    //   .text(`GST No: ${gstNumber}`, 40, footerY + 35);
+
     doc
       .fontSize(8)
       .fillColor("#666666")
-      .text(
-        "Address: D.NO 307, Asambur Road, Yercaud - 636602",
-        40,
-        footerY + 15,
-      );
+      .text("Tamil Nadu, India", 40, footerY + 15);
 
     doc
       .fontSize(8)
-      .text(
-        "Phone: +91 9489690022 | Email: reservation@fridayinnyercaud.com",
-        40,
-        footerY + 25,
-      );
-
-    doc
-      .fontSize(7)
-      .font("Helvetica-Bold")
-      .fillColor("#999999")
-      .text(`GST No: ${gstNumber}`, 40, footerY + 35);
+      .text("Phone: +91 9025348397 | Email: hello@webaac.in", 40, footerY + 25);
 
     doc
       .fontSize(7)
