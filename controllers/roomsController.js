@@ -68,7 +68,7 @@ exports.createRoomCategory = async (req, res) => {
 
     const [rows] = await db.query(
       "SELECT id, name, created_at, updated_at, 0 AS room_count FROM room_categories WHERE id = ? LIMIT 1",
-      [result.lastID]
+      [result.lastID],
     );
 
     res.json(rows[0] || { id: result.lastID, name, room_count: 0 });
@@ -90,7 +90,7 @@ exports.updateRoomCategory = async (req, res) => {
   try {
     const [currentRows] = await connection.query(
       "SELECT id, name FROM room_categories WHERE id = ? LIMIT 1",
-      [id]
+      [id],
     );
 
     const current = currentRows[0];
@@ -101,7 +101,7 @@ exports.updateRoomCategory = async (req, res) => {
 
     const [duplicateRows] = await connection.query(
       "SELECT id FROM room_categories WHERE name = ? AND id <> ? LIMIT 1",
-      [name, id]
+      [name, id],
     );
 
     if (duplicateRows.length > 0) {
@@ -110,15 +110,15 @@ exports.updateRoomCategory = async (req, res) => {
 
     await connection.beginTransaction();
 
-    await connection.query(
-      "UPDATE room_categories SET name = ? WHERE id = ?",
-      [name, id]
-    );
+    await connection.query("UPDATE room_categories SET name = ? WHERE id = ?", [
+      name,
+      id,
+    ]);
 
     if (current.name !== name) {
       await connection.query(
         "UPDATE rooms SET category = ? WHERE category = ?",
-        [name, current.name]
+        [name, current.name],
       );
     }
 
@@ -138,7 +138,7 @@ exports.updateRoomCategory = async (req, res) => {
       GROUP BY rc.id, rc.name, rc.created_at, rc.updated_at
       LIMIT 1
       `,
-      [id]
+      [id],
     );
 
     res.json(rows[0] || { id: Number(id), name });
@@ -160,7 +160,7 @@ exports.deleteRoomCategory = async (req, res) => {
   try {
     const [categoryRows] = await db.query(
       "SELECT id, name FROM room_categories WHERE id = ? LIMIT 1",
-      [id]
+      [id],
     );
 
     const category = categoryRows[0];
@@ -171,7 +171,7 @@ exports.deleteRoomCategory = async (req, res) => {
 
     const [usageRows] = await db.query(
       "SELECT COUNT(*) AS room_count FROM rooms WHERE category = ?",
-      [category.name]
+      [category.name],
     );
 
     if (Number(usageRows[0]?.room_count || 0) > 0) {
@@ -205,26 +205,34 @@ exports.getAllRooms = (req, res) => {
     (err, rows) => {
       if (err) return res.status(500).json({ error: err.message });
 
-      const rooms = rows.map(r => ({
+      const rooms = rows.map((r) => ({
         ...r,
         amenities: safeParse(r.amenities),
         add_ons: safeParse(r.add_ons),
         capacity: r.capacity,
-        current_occupancy: r.current_occupancy
+        current_occupancy: r.current_occupancy,
       }));
 
       res.json(rooms);
-    }
+    },
   );
 };
 
 exports.getRoomById = (req, res) => {
   const { id } = req.params;
-  db.get("SELECT * FROM rooms WHERE id = ? AND org_id = ?", [id, req.orgId], (err, row) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (!row) return res.status(404).json({ error: "Room not found" });
-    res.json({ ...row, amenities: safeParse(row.amenities), add_ons: safeParse(row.add_ons) });
-  });
+  db.get(
+    "SELECT * FROM rooms WHERE id = ? AND org_id = ?",
+    [id, req.orgId],
+    (err, row) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!row) return res.status(404).json({ error: "Room not found" });
+      res.json({
+        ...row,
+        amenities: safeParse(row.amenities),
+        add_ons: safeParse(row.add_ons),
+      });
+    },
+  );
 };
 
 exports.createRoom = async (req, res) => {
@@ -245,7 +253,13 @@ exports.createRoom = async (req, res) => {
   }
 
   try {
-    const categoryRow = await getRoomCategoryByName(normalizedCategory, req.orgId);
+    const categoryRow = await getRoomCategoryByName(
+      normalizedCategory,
+      req.orgId,
+    );
+    if (!categoryRow) {
+      return res.status(400).json({ error: "Invalid room category" });
+    }
     if (!categoryRow) {
       return res.status(400).json({ error: "Invalid room category" });
     }
@@ -290,7 +304,10 @@ exports.updateRoom = async (req, res) => {
   }
 
   try {
-    const categoryRow = await getRoomCategoryByName(normalizedCategory, req.orgId);
+    const categoryRow = await getRoomCategoryByName(
+      normalizedCategory,
+      req.orgId,
+    );
     if (!categoryRow) {
       return res.status(400).json({ error: "Invalid room category" });
     }
@@ -319,6 +336,41 @@ exports.updateRoom = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+exports.updateRoomStatusRestricted = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const [rows] = await db.query(
+      "SELECT status FROM rooms WHERE id = ? AND org_id = ?",
+      [id, req.orgId],
+    );
+    const room = rows[0];
+
+    if (!room) {
+      return res.status(404).json({ error: "Room not found" });
+    }
+
+    if (room.status !== "Cleaning") {
+      return res.status(400).json({
+        error: "Only rooms currently in Cleaning status can be updated",
+      });
+    }
+
+    const result = await db.run(
+      `UPDATE rooms SET status = 'Available' WHERE id = ? AND org_id = ?`,
+      [id, req.orgId],
+    );
+
+    if (result.changes === 0) {
+      return res.status(404).json({ error: "Room not found" });
+    }
+
+    res.json({ updated: true, status: "Available" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
 exports.getActiveRooms = (req, res) => {
   const query = `
     SELECT 
@@ -335,9 +387,11 @@ exports.getActiveRooms = (req, res) => {
     JOIN rooms r ON b.room_id = r.id
     JOIN customers c ON b.customer_id = c.id
 
-    WHERE b.status IN ('Confirmed', 'Checked-in')
+    WHERE b.status = 'Checked-in'
       AND b.org_id = ?
-    ORDER BY b.id DESC
+    ORDER BY
+      b.check_in ASC,
+      b.id DESC
   `;
 
   db.all(query, [req.orgId], (err, rows) => {
@@ -347,9 +401,14 @@ exports.getActiveRooms = (req, res) => {
 };
 exports.deleteRoom = (req, res) => {
   const { id } = req.params;
-  db.run("DELETE FROM rooms WHERE id=? AND org_id=?", [id, req.orgId], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
-    if (this.changes === 0) return res.status(404).json({ error: "Room not found" });
-    res.json({ deleted: true });
-  });
+  db.run(
+    "DELETE FROM rooms WHERE id=? AND org_id=?",
+    [id, req.orgId],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0)
+        return res.status(404).json({ error: "Room not found" });
+      res.json({ deleted: true });
+    },
+  );
 };
