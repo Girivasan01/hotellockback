@@ -55,27 +55,42 @@ class CheckoutService {
       }
 
       const dbAddons = await dbService.getBookingAddons(booking.booking_id);
-      const dbAddonTotal = dbAddons.reduce(
-        (sum, addon) => sum + Number(addon.price || 0),
-        0,
-      );
 
-      const existingAddonCounts = dbAddons.reduce((counts, addon) => {
+      const requestedAddOns = Array.isArray(add_ons) ? add_ons : [];
+      const requestedCounts = requestedAddOns.reduce((counts, addon) => {
         const keyPart = `${addon.name || ""}::${Number(addon.price || 0)}`;
         counts[keyPart] = (counts[keyPart] || 0) + 1;
         return counts;
       }, {});
 
-      const requestedAddOns = Array.isArray(add_ons) ? add_ons : [];
-      const newAddOns = requestedAddOns.filter((addon) => {
+      // Only keep existing add-ons that are still selected in the checkout
+      // request; anything unchecked during checkout is dropped from both
+      // the total and the stored add-ons so the bill matches what staff saw.
+      const keptDbAddons = [];
+      const removedDbAddons = [];
+      for (const addon of dbAddons) {
         const keyPart = `${addon.name || ""}::${Number(addon.price || 0)}`;
-        if (existingAddonCounts[keyPart] > 0) {
-          existingAddonCounts[keyPart] -= 1;
-          return false;
+        if (requestedCounts[keyPart] > 0) {
+          requestedCounts[keyPart] -= 1;
+          keptDbAddons.push(addon);
+        } else {
+          removedDbAddons.push(addon);
         }
-        return true;
-      });
+      }
 
+      const newAddOns = [];
+      for (const addon of requestedAddOns) {
+        const keyPart = `${addon.name || ""}::${Number(addon.price || 0)}`;
+        if (requestedCounts[keyPart] > 0) {
+          requestedCounts[keyPart] -= 1;
+          newAddOns.push(addon);
+        }
+      }
+
+      const keptAddonTotal = keptDbAddons.reduce(
+        (sum, addon) => sum + Number(addon.price || 0),
+        0,
+      );
       const newAddonTotal = newAddOns.reduce(
         (sum, addon) => sum + Number(addon.price || 0),
         0,
@@ -95,7 +110,7 @@ class CheckoutService {
         checkOut: bookedCheckOutDate,
         roomRate: Number(booking.price || 0),
         kitchenTotal: Number(booking.kitchenTotal || 0),
-        addonTotal: dbAddonTotal + newAddonTotal,
+        addonTotal: keptAddonTotal + newAddonTotal,
         discount: discountToApply,
         advancePaid: Number(booking.advance_paid || 0),
       });
@@ -109,6 +124,13 @@ class CheckoutService {
       }
 
       const billingId = await dbService.transaction(async (tx) => {
+        for (const addon of removedDbAddons) {
+          await tx.run(
+            `DELETE FROM booking_addons WHERE id = ? AND org_id = ?`,
+            [addon.id, orgId],
+          );
+        }
+
         for (const addon of newAddOns) {
           await tx.run(
             `INSERT INTO booking_addons (booking_id, name, price, org_id) VALUES (?, ?, ?, ?)`,
@@ -127,7 +149,7 @@ class CheckoutService {
         );
 
         await tx.run(
-          `UPDATE rooms SET status = 'Available' WHERE id = ? AND org_id = ?`,
+          `UPDATE rooms SET status = 'Cleaning' WHERE id = ? AND org_id = ?`,
           [booking.room_id, orgId],
         );
 
@@ -143,7 +165,7 @@ class CheckoutService {
             booking.customer_id,
             booking.room_id,
             booking.check_in,
-            bookedCheckOutDate, 
+            bookedCheckOutDate,
             calculation.advancePaid,
             calculation.discount,
             calculation.totalAmount,
