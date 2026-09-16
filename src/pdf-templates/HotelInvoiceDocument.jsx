@@ -11,8 +11,8 @@ import {
 
 const BORDER_COLOR = "#000000";
 
-const INSTAGRAM_QR_PATH = "/insta_qr.jpeg";
-const WEBSITE_QR_PATH = "/hotel_qr.jpeg";
+const INSTAGRAM_QR_PATH = "/Webaac_insta_qr.png";
+const WEBSITE_QR_PATH = "/Webaac_qr.png";
 
 const path = require("path");
 
@@ -304,9 +304,9 @@ export const HotelInvoiceDocument = ({
   guestDiscount,
   gstNumber,
   formatIST,
-  logoPath = path.join(__dirname, "../../assets/FridayInnLogo.png"),
-  instagramQrPath = path.join(__dirname, "../../assets/insta_qr.jpeg"),
-  websiteQrPath = path.join(__dirname, "../../assets/hotel_qr.jpeg"),
+  logoPath = path.join(__dirname, "../../assets/Webaac.png"),
+  instagramQrPath = path.join(__dirname, "../../assets/Webaac_insta_qr.png"),
+  websiteQrPath = path.join(__dirname, "../../assets/Webaac_qr.png"),
 }) => {
   const monthNames = [
     "Jan",
@@ -465,8 +465,8 @@ export const HotelInvoiceDocument = ({
             <Image style={styles.logo} src={logoPath} />
 
             <View style={styles.headerTextContainer}>
-              <Text style={styles.hotelName}>Hotel Friday Inn</Text>
-              <Text style={styles.address}>
+              <Text style={styles.hotelName}>Webaac Hotel CRM</Text>
+              {/* <Text style={styles.address}>
                 D.NO 307 ASAMBUR TO MANJAKUTTAI ROAD,{"\n"}
                 ASAMBUR VILLAGE, YERCAUD - 636602,{"\n"}
                 TAMIL NADU, INDIA.
@@ -474,13 +474,16 @@ export const HotelInvoiceDocument = ({
               <Text style={styles.contact}>
                 Call: +91 6369469094 | +91 9489690022 | 04281-290001.
               </Text>
-              {/* <Text style={styles.contact}>Email:hello@webaac.in</Text> */}
+              <Text style={styles.contact}>Email:hello@webaac.in</Text>
               <Text style={styles.gstBanner}>
                 GST NO:{" "}
                 {selectedBill?.category === "A frame wooden villa AC"
                   ? "33AMQPK7880E2ZO"
                   : "33AMQPK7880E1ZP"}
-              </Text>
+              </Text> */}
+              <Text style={styles.address}>Tamil Nadu, India</Text>
+              <Text style={styles.contact}>Call: +91 9025348397</Text>
+              <Text style={styles.contact}>Email: hello@webaac.in</Text>
             </View>
           </View>
           <View style={styles.headerRight}>
