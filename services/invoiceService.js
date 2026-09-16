@@ -111,7 +111,8 @@ class InvoiceService {
     const lineDiscountTotal = Math.abs(this._sumLineSubtotal(discountLines));
 
     const roomRatePerNight =
-      roomLines[0]?.unit_price !== undefined && roomLines[0]?.unit_price !== null
+      roomLines[0]?.unit_price !== undefined &&
+      roomLines[0]?.unit_price !== null
         ? Number(roomLines[0].unit_price || 0)
         : undefined;
 
@@ -141,13 +142,23 @@ class InvoiceService {
       ...(storedRoomGstRate !== undefined ? { room: storedRoomGstRate } : {}),
     };
 
+    const gstEnabled =
+      billing.gst_included === undefined || billing.gst_included === null
+        ? true
+        : Number(billing.gst_included) === 1;
+
+    const gstTotal = gstEnabled ? calculation.gstAmount : 0;
+    const gstBreakdown = gstEnabled
+      ? calculation.gstBreakdown
+      : { room: 0, kitchen: 0, addon: 0 };
+
     return {
       stay_days: calculation.stayDays,
       room_total: calculation.roomTotal,
       kitchen_total: calculation.kitchenTotal,
       addon_total: calculation.addonTotal,
       subtotal: calculation.subtotal,
-      gst_total: calculation.gstAmount,
+      gst_total: gstTotal,
       grand_total:
         billing.total_amount !== undefined && billing.total_amount !== null
           ? Number(billing.total_amount || 0)
@@ -156,10 +167,12 @@ class InvoiceService {
       advance_paid: calculation.advancePaid,
       final_payable: calculation.finalPayable,
       gst_rate_avg:
-        calculation.subtotal > 0
-          ? Number(((calculation.gstAmount / calculation.subtotal) * 100).toFixed(1))
+        gstEnabled && calculation.subtotal > 0
+          ? Number(
+              ((calculation.gstAmount / calculation.subtotal) * 100).toFixed(1),
+            )
           : 0,
-      gst_breakdown: calculation.gstBreakdown,
+      gst_breakdown: gstBreakdown,
       gst_rates: finalGstRates,
     };
   }
