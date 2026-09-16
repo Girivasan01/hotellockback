@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS kitchen_orders (
     id INT AUTO_INCREMENT PRIMARY KEY,
     room_id INT NOT NULL,
     booking_id VARCHAR(255),
+    customer_id INT,
     item_id INT NOT NULL,
     quantity INT NOT NULL DEFAULT 1,
     status VARCHAR(255) NOT NULL DEFAULT 'Pending',
@@ -135,7 +136,10 @@ CREATE TABLE IF NOT EXISTS billings (
     discount DECIMAL(10,2) DEFAULT 0,
     total_amount DECIMAL(10,2) NOT NULL,
     gst_number VARCHAR(255),
+    gst_included TINYINT(1) DEFAULT 1,
     is_downloaded TINYINT(1) DEFAULT 0,
+    is_deleted TINYINT(1) DEFAULT 0,
+    deleted_at DATETIME DEFAULT NULL,
     payment_status VARCHAR(20) NOT NULL DEFAULT 'unpaid',
     billed_by_id INT,
     billed_by_name VARCHAR(255),
@@ -234,7 +238,6 @@ CREATE TABLE IF NOT EXISTS restaurant_orders (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ================== INDEXES ==================
--- server.js catches ER_DUP_KEYNAME so these are safe on re-runs
 CREATE INDEX idx_billings_booking ON billings(booking_id);
 CREATE INDEX idx_billings_idempotency ON billings(idempotency_key);
 CREATE INDEX idx_billings_payment_status ON billings(payment_status);
