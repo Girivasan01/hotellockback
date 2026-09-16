@@ -20,10 +20,12 @@ const migrations = [
 
   // ── Users: staff_id FK column ─────
   `ALTER TABLE users ADD COLUMN staff_id INT`,
-  `ALTER TABLE users MODIFY COLUMN role ENUM('admin','staff','kitchen') NOT NULL`,
 
   // ── Billings: is_downloaded flag ──
   `ALTER TABLE billings ADD COLUMN is_downloaded TINYINT(1) DEFAULT 0`,
+
+  // ── Billings: persisted GST mode selected at invoice generation time ──
+  `ALTER TABLE billings ADD COLUMN gst_included TINYINT(1) DEFAULT 1`,
 
   // ── Rooms: capacity column ────────
   `ALTER TABLE rooms ADD COLUMN capacity INT DEFAULT 2`,
@@ -40,6 +42,7 @@ const migrations = [
   `ALTER TABLE categories ADD COLUMN org_id INT`,
   `ALTER TABLE menu_items ADD COLUMN org_id INT`,
   `ALTER TABLE kitchen_orders ADD COLUMN org_id INT`,
+  `ALTER TABLE kitchen_orders ADD COLUMN customer_id INT`,
   `ALTER TABLE add_ons ADD COLUMN org_id INT`,
   `ALTER TABLE billings ADD COLUMN org_id INT`,
   `ALTER TABLE invoices ADD COLUMN org_id INT`,
@@ -81,6 +84,14 @@ const migrations = [
     auto_bill_payment TINYINT(1) NOT NULL DEFAULT 1,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+  // ── Users: add cleaning role ──
+  `ALTER TABLE users MODIFY COLUMN role ENUM('admin','staff','kitchen','cleaning') NOT NULL`,
+
+  // ── Billings: soft-delete flag (bill is hidden from lists, but stays
+  //    counted in finance income and the downloadable bill statement) ──
+  `ALTER TABLE billings ADD COLUMN is_deleted TINYINT(1) DEFAULT 0`,
+  `ALTER TABLE billings ADD COLUMN deleted_at DATETIME DEFAULT NULL`,
 ];
 
 async function columnExists(tableName, columnName) {
