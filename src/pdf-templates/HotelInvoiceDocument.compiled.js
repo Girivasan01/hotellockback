@@ -17,6 +17,10 @@ var __copyProps = (to, from, except, desc) => {
   return to;
 };
 var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
@@ -31,8 +35,8 @@ var import_jsx_runtime = require("react/jsx-runtime");
 var import_react = __toESM(require("react"));
 var import_renderer = require("@react-pdf/renderer");
 const BORDER_COLOR = "#000000";
-const INSTAGRAM_QR_PATH = "/insta_qr.jpeg";
-const WEBSITE_QR_PATH = "/hotel_qr.jpeg";
+const INSTAGRAM_QR_PATH = "/Webaac_insta_qr.png";
+const WEBSITE_QR_PATH = "/Webaac_qr.png";
 const path = require("path");
 const FONT_DIR = path.join(
   __dirname,
@@ -319,9 +323,9 @@ const HotelInvoiceDocument = ({
   guestDiscount,
   gstNumber,
   formatIST,
-  logoPath = path.join(__dirname, "../../assets/FridayInnLogo.png"),
-  instagramQrPath = path.join(__dirname, "../../assets/insta_qr.jpeg"),
-  websiteQrPath = path.join(__dirname, "../../assets/hotel_qr.jpeg")
+  logoPath = path.join(__dirname, "../../assets/Webaac.png"),
+  instagramQrPath = path.join(__dirname, "../../assets/Webaac_insta_qr.png"),
+  websiteQrPath = path.join(__dirname, "../../assets/Webaac_qr.png")
 }) => {
   const monthNames = [
     "Jan",
@@ -439,20 +443,10 @@ const HotelInvoiceDocument = ({
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_renderer.View, { style: styles.headerLeft, children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_renderer.Image, { style: styles.logo, src: logoPath }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_renderer.View, { style: styles.headerTextContainer, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_renderer.Text, { style: styles.hotelName, children: "Hotel Friday Inn" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_renderer.Text, { style: styles.address, children: [
-            "D.NO 307 ASAMBUR TO MANJAKUTTAI ROAD,",
-            "\n",
-            "ASAMBUR VILLAGE, YERCAUD - 636602,",
-            "\n",
-            "TAMIL NADU, INDIA."
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_renderer.Text, { style: styles.contact, children: "Call: +91 6369469094 | +91 9489690022 | 04281-290001." }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_renderer.Text, { style: styles.gstBanner, children: [
-            "GST NO:",
-            " ",
-            selectedBill?.category === "A frame wooden villa AC" ? "33AMQPK7880E2ZO" : "33AMQPK7880E1ZP"
-          ] })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_renderer.Text, { style: styles.hotelName, children: "Webaac Hotel CRM" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_renderer.Text, { style: styles.address, children: "Tamil Nadu, India" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_renderer.Text, { style: styles.contact, children: "Call: +91 9025348397" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_renderer.Text, { style: styles.contact, children: "Email: hello@webaac.in" })
         ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_renderer.View, { style: styles.headerRight, children: [
