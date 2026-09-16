@@ -5,6 +5,48 @@ const { Parser } = require("json2csv");
 const billingController = require("../controllers/profitController");
 const { requireAuth, requireAdmin } = require("../middleware/auth");
 
+const MONTH_NAMES = [
+  "january",
+  "february",
+  "march",
+  "april",
+  "may",
+  "june",
+  "july",
+  "august",
+  "september",
+  "october",
+  "november",
+  "december",
+];
+
+const buildBillingStatementFilename = (startDate, endDate) => {
+  if (!startDate && !endDate) return "billing-statements";
+
+  if (startDate && endDate) {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const startMonth = MONTH_NAMES[start.getMonth()];
+    const endMonth = MONTH_NAMES[end.getMonth()];
+    const startYear = start.getFullYear();
+    const endYear = end.getFullYear();
+
+    if (startYear === endYear && startMonth === endMonth) {
+      return `bill-statement-${startMonth}-${startYear}`;
+    }
+    if (startYear === endYear) {
+      return `bill-statement-${startMonth}-to-${endMonth}-${startYear}`;
+    }
+    return `bill-statement-${startMonth}-${startYear}-to-${endMonth}-${endYear}`;
+  }
+
+  const single = new Date(startDate || endDate);
+  const label = `${MONTH_NAMES[single.getMonth()]}-${single.getFullYear()}`;
+  return startDate
+    ? `bill-statement-from-${label}`
+    : `bill-statement-to-${label}`;
+};
+
 /* ===============================
    GET TOTAL PROFIT
 ================================ */
@@ -58,12 +100,28 @@ router.get("/preview/:bookingId", async (req, res) => {
 ================================ */
 router.get("/:id/pdf", async (req, res) => {
   const billId = req.params.id;
+  const { gstMode } = req.query;
 
   try {
+    const [[deletedCheck]] = await db.query(
+      "SELECT is_deleted FROM billings WHERE id = ? AND org_id = ?",
+      [billId, req.orgId],
+    );
+    if (deletedCheck && Number(deletedCheck.is_deleted) === 1) {
+      return res.status(404).json({ error: "Bill not found" });
+    }
+
     const invoiceService = require("../services/invoiceService");
     const {
       generateInvoicePdfBuffer,
     } = require("../services/invoicePdfService");
+
+    if (gstMode === "with" || gstMode === "without") {
+      await db.query(
+        "UPDATE billings SET gst_included = ? WHERE id = ? AND org_id = ?",
+        [gstMode === "with" ? 1 : 0, billId, req.orgId],
+      );
+    }
 
     const invoiceData = await invoiceService.getInvoiceData(billId, req.orgId);
     const pdfBuffer = await generateInvoicePdfBuffer(invoiceData);
@@ -91,6 +149,14 @@ router.get("/:id", async (req, res) => {
   const billId = req.params.id;
 
   try {
+    const [[deletedCheck]] = await db.query(
+      "SELECT is_deleted FROM billings WHERE id = ? AND org_id = ?",
+      [billId, req.orgId],
+    );
+    if (deletedCheck && Number(deletedCheck.is_deleted) === 1) {
+      return res.status(404).json({ error: "Bill not found" });
+    }
+
     const billingService = require("../services/billingService");
     const bill = await billingService.getBillingDetails(billId, req.orgId);
     res.json(bill);
@@ -104,14 +170,18 @@ router.get("/:id", async (req, res) => {
 });
 
 /* ===============================
-   DELETE BILL
+   DELETE BILL (soft delete)
+   NOTE: This only hides the bill from the billing list/PDF. It must
+   NOT reduce finance income or disappear from the downloadable bill
+   statement (CSV export) — those keep reading from the same
+   `billings` row, so we mark it as deleted instead of removing it.
 ================================ */
 router.delete("/:id", async (req, res) => {
   const billId = req.params.id;
 
   try {
     const [result] = await db.query(
-      "DELETE FROM billings WHERE id = ? AND org_id = ?",
+      "UPDATE billings SET is_deleted = 1, deleted_at = NOW() WHERE id = ? AND org_id = ? AND COALESCE(is_deleted, 0) = 0",
       [billId, req.orgId],
     );
     if (result.affectedRows === 0) {
@@ -177,6 +247,35 @@ router.patch("/:id/downloaded", async (req, res) => {
   } catch (err) {
     console.error("❌ MARK DOWNLOADED FAILED:", err);
     res.status(500).json({ error: "Failed to update bill" });
+  }
+});
+
+/* ===============================
+   UPDATE BILL DISCOUNT
+================================ */
+router.patch("/:id/discount", async (req, res) => {
+  const billId = req.params.id;
+  const { discount } = req.body;
+  const discountValue = Number(discount);
+
+  if (Number.isNaN(discountValue) || discountValue < 0) {
+    return res.status(400).json({ error: "Invalid discount amount" });
+  }
+
+  try {
+    const [result] = await db.query(
+      "UPDATE billings SET discount = ? WHERE id = ? AND org_id = ?",
+      [discountValue, billId, req.orgId],
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "Bill not found" });
+    }
+
+    res.json({ message: "Discount updated", discount: discountValue });
+  } catch (err) {
+    console.error("❌ UPDATE DISCOUNT FAILED:", err);
+    res.status(500).json({ error: "Failed to update discount" });
   }
 });
 
@@ -261,10 +360,15 @@ router.get("/export/csv", requireAuth, requireAdmin, async (req, res) => {
       b.created_at AS checkout_date,
       c.name AS customer_name,
       b.gst_number,
+      COALESCE(b.gst_included, 1) AS gst_included,
       COALESCE(
         CONCAT(r_live.room_number, ' / ', r_live.category),
         CONCAT(r_stale.room_number, ' / ', r_stale.category)
       ) AS room_description,
+      COALESCE(
+        r_live.category,
+        r_stale.category
+      ) AS room_category,
       COALESCE(room_lines.room_tariff, 0) AS raw_tariff,
       COALESCE(b.discount, 0) AS discount,
       COALESCE(room_lines.room_gst_rate, 0.05) AS gst_rate
@@ -294,14 +398,20 @@ LEFT JOIN (
         Number(row.raw_tariff || 0) - Number(row.discount || 0),
         0,
       );
-      const discountedGst = Number(
-        (discountedTariff * Number(row.gst_rate || 0)).toFixed(2),
-      );
+      const gstIncluded = Number(row.gst_included) === 1;
+      const discountedGst = gstIncluded
+        ? Number((discountedTariff * Number(row.gst_rate || 0)).toFixed(2))
+        : 0;
       return {
         id: new Date(row.checkout_date).toLocaleDateString("en-GB"),
         invoiceNo: `INV-${String(row.id).padStart(6, "0")}`,
         name: row.customer_name || "",
         guestGstNo: row.gst_number || "",
+        hotelGstNo:
+          row.room_category &&
+          row.room_category.toLowerCase().includes("a frame wooden villa")
+            ? "33AMQPK7880E2ZO"
+            : "33AMQPK7880E1ZP",
         roomDescription: row.room_description || "",
         hsnCodeHotel: "",
         tariffPrice: discountedTariff.toFixed(2),
@@ -322,6 +432,7 @@ LEFT JOIN (
       invoiceNo: "",
       name: "",
       guestGstNo: "",
+      hotelGstNo: "",
       roomDescription: "",
       hsnCodeHotel: "Total",
       tariffPrice: totals.tariffPrice.toFixed(2),
@@ -334,6 +445,7 @@ LEFT JOIN (
         { label: "Invoice No.", value: "invoiceNo" },
         { label: "Name", value: "name" },
         { label: "Guest GST No.", value: "guestGstNo" },
+        { label: "Hotel GST No.", value: "hotelGstNo" },
         { label: "Room Description", value: "roomDescription" },
         { label: "HSN Code Hotel", value: "hsnCodeHotel" },
         { label: "Tariff Price", value: "tariffPrice" },
@@ -343,10 +455,12 @@ LEFT JOIN (
 
     const csv = parser.parse(csvRows);
 
+    const filename = buildBillingStatementFilename(startDate, endDate);
+
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader(
       "Content-Disposition",
-      "attachment; filename=billing-statements.csv",
+      `attachment; filename=${filename}.csv`,
     );
     res.status(200).send(`\uFEFF${csv}`);
   } catch (error) {
