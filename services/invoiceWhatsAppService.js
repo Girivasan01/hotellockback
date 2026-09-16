@@ -1,6 +1,7 @@
 const invoiceService = require("./invoiceService");
 const { generateInvoicePdfBuffer } = require("./invoicePdfService");
 const whatsappService = require("./whatsappService");
+const { GOOGLE_REVIEW_LINK } = require("../config/features");
 
 class InvoiceWhatsAppService {
   async sendInvoice(billingId, orgId) {
@@ -24,9 +25,13 @@ class InvoiceWhatsAppService {
     const caption = [
       `Dear ${invoiceData.customer_name || "Guest"},`,
       "",
-      "Thank you for staying with Hotel Friday Inn.",
+      "Thank you for staying with Webaac Hotel CRM.",
       `Your invoice for booking ${invoiceData.booking_id} is attached.`,
       `Total: Rs ${Number(invoiceData.totals?.grand_total || invoiceData.total_amount || 0).toFixed(2)}`,
+      "",
+      // Feedback request
+      "We'd love to hear about your stay! Please take a moment to share your feedback:",
+      GOOGLE_REVIEW_LINK,
     ].join("\n");
 
     const result = await whatsappService.sendInvoicePdf({
