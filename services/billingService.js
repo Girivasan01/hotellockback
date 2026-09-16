@@ -26,14 +26,14 @@ class BillingService {
     }
 
     const kitchenSummary = await dbService.getKitchenBillingSummary(
-      booking.booking_id
+      booking.booking_id,
     );
     const kitchenTotal = Number(kitchenSummary.kitchenTotal || 0);
 
     const addonsData = await dbService.getBookingAddons(booking.booking_id);
     const addonsTotal = addonsData.reduce(
       (sum, addon) => sum + Number(addon.price || 0),
-      0
+      0,
     );
 
     const calculation = calculateBillingTotals({
@@ -104,7 +104,7 @@ class BillingService {
   } = {}) {
     const offset = (page - 1) * limit;
 
-    const conditions = ["b.org_id = ?"];
+    const conditions = ["b.org_id = ?", "COALESCE(b.is_deleted, 0) = 0"];
     const params = [orgId];
 
     if (!includeDownloaded) {
@@ -113,7 +113,7 @@ class BillingService {
 
     if (search) {
       conditions.push(
-        "(b.booking_id LIKE ? OR c.name LIKE ? OR b.gst_number LIKE ?)"
+        "(b.booking_id LIKE ? OR c.name LIKE ? OR b.gst_number LIKE ?)",
       );
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
@@ -167,7 +167,7 @@ class BillingService {
       ORDER BY b.created_at DESC
       LIMIT ? OFFSET ?
     `,
-      listParams
+      listParams,
     );
 
     const countParams = [...params];
@@ -179,7 +179,7 @@ class BillingService {
       LEFT JOIN customers c ON b.customer_id = c.id
       ${whereClause}
     `,
-      countParams
+      countParams,
     );
 
     return {
@@ -232,7 +232,7 @@ class BillingService {
       FROM billings b
       ${whereClause}
     `,
-      params
+      params,
     );
 
     return (
