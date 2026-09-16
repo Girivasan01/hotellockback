@@ -35,7 +35,7 @@ class BookingWhatsAppService {
     const message = [
       `Dear ${booking.customer_name || "Guest"},`,
       "",
-      "Your booking with Hotel Friday Inn is confirmed!",
+      "Your booking with Webaac Hotel CRM is confirmed!",
       `Booking ID: ${booking.booking_id}`,
       `Room: ${booking.room_number || "N/A"}${booking.category ? ` (${booking.category})` : ""}`,
       `Check-in: ${booking.check_in || "N/A"}`,
