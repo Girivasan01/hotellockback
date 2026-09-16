@@ -1,3 +1,5 @@
 const WHATSAPP_ENABLED = true;
 
-module.exports = { WHATSAPP_ENABLED };
+const GOOGLE_REVIEW_LINK = "https://tinyurl.com/hotelfridayinn-review";
+
+module.exports = { WHATSAPP_ENABLED, GOOGLE_REVIEW_LINK };
